@@ -1,0 +1,40 @@
+# ---------- Node / Front ----------
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------- Python / IA ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---------- Variaveis de ambiente / chaves ----------
+.env
+.env.*
+
+# ---------- Uploads / arquivos temporarios ----------
+uploads/
+tmp/
+*.tmp
+
+# ---------- Editores / SO ----------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

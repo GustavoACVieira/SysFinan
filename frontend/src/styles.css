@@ -1,0 +1,155 @@
+:root {
+  --fundo: #f1f5f9;
+  --cartao: #ffffff;
+  --borda: #e2e8f0;
+  --texto: #0f172a;
+  --texto-suave: #64748b;
+  --escuro: #0f172a;
+  --erro: #b91c1c;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--texto);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--fundo);
+}
+
+.pagina {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+.cabecalho {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.cabecalho h1 {
+  font-size: 1.6rem;
+  margin: 0 0 8px;
+}
+
+.cabecalho p {
+  margin: 0;
+  color: var(--texto-suave);
+  font-size: 0.9rem;
+}
+
+.cartao {
+  background: var(--cartao);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.cartao-cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cartao-titulo {
+  font-size: 1rem;
+  margin: 0 0 16px;
+}
+
+.cartao-cabecalho .cartao-titulo {
+  margin: 0;
+}
+
+.rotulo {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+input[type='file'] {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 0.85rem;
+}
+
+.arquivo-selecionado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.arquivo-nome {
+  overflow-wrap: anywhere;
+}
+
+.arquivo-tamanho {
+  color: var(--texto-suave);
+  white-space: nowrap;
+}
+
+.botao-extrair {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--escuro);
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.botao-extrair:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.botao-copiar {
+  padding: 6px 12px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--cartao);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.erro {
+  margin: 12px 0 0;
+  color: var(--erro);
+  font-size: 0.85rem;
+}
+
+.json {
+  margin: 16px 0 0;
+  padding: 16px;
+  max-height: 420px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--escuro);
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.rodape-json {
+  margin: 12px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+}
