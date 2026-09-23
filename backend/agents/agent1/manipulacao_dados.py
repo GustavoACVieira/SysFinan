@@ -9,6 +9,7 @@ from google.genai import types
 from models import NotaFiscalExtraida
 
 MODELO_PADRAO = "gemini-2.5-flash"
+TENTATIVAS = 3
 
 # Subcategorias usadas apenas como contexto de classificacao no prompt.
 CATEGORIAS = {
@@ -41,14 +42,21 @@ INSTRUCAO = """Você é um agente especialista em notas fiscais eletrônicas bra
 Extraia os dados da nota fiscal em anexo, que representa um registro de CONTAS A PAGAR.
 
 Regras de extração:
-- FORNECEDOR é o emitente da nota. FATURADO é o destinatário/remetente.
+- FORNECEDOR é o EMITENTE da nota (bloco "IDENTIFICAÇÃO DO EMITENTE"): razão social,
+  nome fantasia (se houver) e CNPJ.
+- FATURADO é o DESTINATÁRIO da nota (bloco "DESTINATÁRIO/REMETENTE"): nome e CPF.
+- CNPJ no formato 00.000.000/0000-00 e CPF no formato 000.000.000-00.
 - Datas sempre no formato YYYY-MM-DD.
 - Valores como número decimal, usando ponto como separador (ex.: 3086.75).
-- As parcelas vêm do bloco FATURA/DUPLICATAS. Se a nota tiver um único vencimento,
-  devolva uma parcela com numero = 1.
+- valorTotal é o "VALOR TOTAL DA NOTA".
+- As parcelas vêm do bloco FATURA/DUPLICATAS, na ordem dos vencimentos, numeradas a
+  partir de 1. Se a nota não tiver esse bloco, devolva uma única parcela com
+  valor = valorTotal e a data de vencimento que constar na nota (ou null).
 - quantidadeParcelas deve ser igual ao tamanho da lista de parcelas.
-- descricaoProdutos deve conter a descrição de cada item do bloco DADOS DOS PRODUTOS/SERVIÇOS.
-- Não invente dados: use apenas o que consta no documento.
+- descricaoProdutos deve conter a descrição de cada item do bloco DADOS DOS PRODUTOS/SERVIÇOS,
+  exatamente como está escrita.
+- Não invente dados: use apenas o que consta no documento. Se uma informação não constar,
+  devolva null no campo correspondente.
 
 Regra de classificação:
 - tiposDespesa NÃO é um campo extraído do documento. Ele deve ser interpretado a partir
@@ -56,9 +64,18 @@ Regra de classificação:
 
 {categorias}
 
+- Considere a finalidade da compra em uma propriedade rural, não apenas o nome do item.
+- Devolva a categoria que melhor representa a nota como um todo (normalmente uma só).
+  Inclua mais de uma apenas quando a nota misturar itens de categorias claramente distintas.
+
 Exemplos:
 - Compra de óleo diesel -> MANUTENÇÃO E OPERAÇÃO
+- Graxa, rolamentos, buchas e peças de reposição -> MANUTENÇÃO E OPERAÇÃO
 - Compra de material hidráulico -> INFRAESTRUTURA E UTILIDADES
+- Cimento, tijolos, telhas -> INFRAESTRUTURA E UTILIDADES
+- Sementes de soja, adubo, herbicida, calcário -> INSUMOS AGRÍCOLAS
+- Trator, plantadeira ou caminhão novos -> INVESTIMENTOS
+- Frete de grãos -> SERVIÇOS OPERACIONAIS
 """
 
 
@@ -77,7 +94,13 @@ class Agent1:
                 raise RuntimeError(
                     "GEMINI_API_KEY não configurada. Informe a chave em backend/.env."
                 )
-            self._client = genai.Client(api_key=self._api_key)
+            self._client = genai.Client(
+                api_key=self._api_key,
+                # Repete a chamada em erros transitórios do Gemini (429, 5xx).
+                http_options=types.HttpOptions(
+                    retry_options=types.HttpRetryOptions(attempts=TENTATIVAS)
+                ),
+            )
         return self._client
 
     def _instrucao(self) -> str:
@@ -106,4 +129,15 @@ class Agent1:
         if not isinstance(dados, NotaFiscalExtraida):
             raise ValueError("O Gemini não devolveu um JSON no formato esperado.")
 
+        return self._normalizar(dados)
+
+    @staticmethod
+    def _normalizar(dados: NotaFiscalExtraida) -> NotaFiscalExtraida:
+        """Garante a consistência entre campos que o modelo pode devolver divergentes."""
+        for numero, parcela in enumerate(dados.parcelas, start=1):
+            parcela.numero = numero
+        if len(dados.parcelas) == 1 and dados.parcelas[0].valor is None:
+            dados.parcelas[0].valor = dados.valorTotal
+        dados.quantidadeParcelas = len(dados.parcelas)
+        dados.tiposDespesa = list(dict.fromkeys(dados.tiposDespesa))
         return dados

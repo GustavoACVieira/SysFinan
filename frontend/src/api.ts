@@ -13,7 +13,9 @@ export async function extrairDados(arquivo: File): Promise<NotaFiscalExtraida> {
   })
 
   if (!resposta.ok) {
-    throw new Error(`Falha na extração (HTTP ${resposta.status})`)
+    const corpo = await resposta.json().catch(() => null)
+    const detalhe = typeof corpo?.detail === 'string' ? corpo.detail : null
+    throw new Error(detalhe ?? `Falha na extração (HTTP ${resposta.status})`)
   }
 
   return (await resposta.json()) as NotaFiscalExtraida
