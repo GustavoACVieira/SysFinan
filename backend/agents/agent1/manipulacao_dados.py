@@ -8,7 +8,7 @@ from google.genai import types
 
 from models import NotaFiscalExtraida
 
-MODELO_PADRAO = "gemini-2.5-flash"
+MODELO_PADRAO = "gemini-3.8-flash"
 TENTATIVAS = 3
 
 # Subcategorias usadas apenas como contexto de classificacao no prompt.
@@ -121,7 +121,8 @@ class Agent1:
                 system_instruction=self._instrucao(),
                 response_mime_type="application/json",
                 response_schema=NotaFiscalExtraida,
-                temperature=0,
+                # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
+                # temperature baixa degrada o raciocinio e pode causar loops.
             ),
         )
 

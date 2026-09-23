@@ -161,7 +161,7 @@ Variáveis de ambiente:
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
 | `GEMINI_API_KEY` | Chave da API do Gemini | — (obrigatória) |
-| `GEMINI_MODEL` | Modelo utilizado pelo Agent1 | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Modelo utilizado pelo Agent1 | `gemini-3.8-flash` |
 
 ### Endpoint
 
