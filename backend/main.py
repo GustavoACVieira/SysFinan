@@ -14,16 +14,18 @@ from pydantic import BaseModel
 CAMINHO_ENV = Path(__file__).with_name(".env")
 load_dotenv(CAMINHO_ENV)
 
-from agents.agent1.manipulacao_dados import Agent1  # noqa: E402
-from models import NotaFiscalExtraida  # noqa: E402
+from agents.agent1.manipulacao_dados import Agent1, chave_recusada  # noqa: E402
+from models import ResultadoExtracao, SaudeAgent  # noqa: E402
 from seguranca import Credenciais, Sessao, autenticar, encerrar, exigir_login  # noqa: E402
 
 TAMANHO_MAXIMO = 20 * 1024 * 1024  # limite de PDF enviado inline ao Gemini
 
 app = FastAPI(title="SysFinan — Extração de Nota Fiscal", version="0.1.0")
 
+# Sem FRONTEND_URL, libera o Vite local (que atende tanto localhost quanto
+# 127.0.0.1). No Render, FRONTEND_URL recebe a URL publica do front.
 ORIGENS_PERMITIDAS = [
-    origem.strip()
+    origem.strip().rstrip("/")  # "https://x.onrender.com/" nao casaria com o Origin
     for origem in os.getenv(
         "FRONTEND_URL", "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",")
@@ -69,6 +71,12 @@ def gravar_chave(chave: str) -> None:
     set_key(CAMINHO_ENV, "GEMINI_API_KEY", chave, quote_mode="never")
 
 
+@app.get("/saude/agent", response_model=SaudeAgent, dependencies=[Depends(exigir_login)])
+async def saude_agent() -> SaudeAgent:
+    """Verifica o funcionamento do Agent1: chave, modelos e uma geração real."""
+    return await run_in_threadpool(agent1.verificar_funcionamento)
+
+
 @app.post("/login", response_model=Sessao)
 def login(credenciais: Credenciais) -> Sessao:
     return autenticar(credenciais)
@@ -100,10 +108,14 @@ def remover_chave_api() -> StatusChaveApi:
 
 
 @app.post(
-    "/extrair", response_model=NotaFiscalExtraida, dependencies=[Depends(exigir_login)]
+    "/extrair", response_model=ResultadoExtracao, dependencies=[Depends(exigir_login)]
 )
-async def extrair(arquivo: UploadFile = File(...)) -> NotaFiscalExtraida:
-    """Recebe o PDF da nota fiscal e devolve os dados extraídos pelo Agent1."""
+async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
+    """Recebe o PDF da nota fiscal e devolve os dados extraídos pelo Agent1.
+
+    A resposta traz o relatório de cada etapa; `dados` só vem preenchido quando
+    todas as etapas foram aprovadas na verificação.
+    """
     if not agent1.api_key_informada:
         raise HTTPException(
             status_code=400, detail="Informe a chave da API do Gemini antes de extrair."
@@ -125,7 +137,7 @@ async def extrair(arquivo: UploadFile = File(...)) -> NotaFiscalExtraida:
     except RuntimeError as erro:
         raise HTTPException(status_code=500, detail=str(erro)) from erro
     except genai_errors.ClientError as erro:
-        if erro.code in (401, 403):
+        if chave_recusada(erro):
             detalhe = "Chave do Gemini inválida ou sem permissão. Verifique a chave cadastrada."
         elif erro.code == 429:
             detalhe = "Limite de uso da API do Gemini atingido. Tente novamente em instantes."

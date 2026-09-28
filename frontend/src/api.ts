@@ -1,4 +1,4 @@
-import type { NotaFiscalExtraida, StatusChaveApi } from './types'
+import type { ResultadoExtracao, SaudeAgent, StatusChaveApi } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -77,11 +77,17 @@ export async function removerChave(): Promise<StatusChaveApi> {
   return (await resposta.json()) as StatusChaveApi
 }
 
-/** Envia o PDF da nota fiscal para o Agent e devolve os dados extraidos. */
-export async function extrairDados(arquivo: File): Promise<NotaFiscalExtraida> {
+/** Diagnóstico do Agent1: chave, modelos e uma geração real no Gemini. */
+export async function verificarAgent(): Promise<SaudeAgent> {
+  const resposta = await requisitar('/saude/agent', { method: 'GET' }, 'Falha ao verificar o agent')
+  return (await resposta.json()) as SaudeAgent
+}
+
+/** Envia o PDF da nota fiscal para o Agent e devolve os dados com o relatório das etapas. */
+export async function extrairDados(arquivo: File): Promise<ResultadoExtracao> {
   const formData = new FormData()
   formData.append('arquivo', arquivo)
 
   const resposta = await requisitar('/extrair', { method: 'POST', body: formData }, 'Falha na extração')
-  return (await resposta.json()) as NotaFiscalExtraida
+  return (await resposta.json()) as ResultadoExtracao
 }

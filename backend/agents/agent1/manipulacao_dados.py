@@ -1,14 +1,35 @@
-"""Agent1 — responsavel por ler o PDF da nota fiscal e devolver os dados estruturados."""
+"""Agent1 — responsavel por ler o PDF da nota fiscal e devolver os dados estruturados.
+
+A extracao e feita em etapas (ver etapas.py), cada uma com seu esquema Pydantic.
+O agent so avanca para a proxima etapa quando a atual e aprovada pela
+verificacao; se reprovar, a etapa e refeita informando o que estava errado e,
+se continuar reprovada, o pipeline para ali. No fim, a consolidacao repete todas
+as verificacoes sobre a nota completa (redundancia).
+"""
 
 import logging
 import os
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from google import genai
-from google.genai import types
 from google.genai import errors as genai_errors
+from google.genai import types
+from pydantic import BaseModel, ValidationError
 
-from models import NotaFiscalExtraida
+from models import (
+    NotaFiscalExtraida,
+    ResultadoExtracao,
+    SaudeAgent,
+    StatusEtapa,
+    StatusModelo,
+    TesteGeracao,
+    VerificacaoEtapa,
+)
+
+from .etapas import ETAPAS, ID_CONSOLIDACAO, TITULO_CONSOLIDACAO, Contexto, Etapa
+from .verificacao import verificar_consolidacao
 
 logger = logging.getLogger(__name__)
 
@@ -20,76 +41,19 @@ MODELOS_PADRAO = (
     "gemini-3.6-flash",
     "gemini-3.5-flash",
 )
-# Poucas tentativas por modelo: quem da resiliencia aqui e a cadeia de fallback,
+# Poucas tentativas HTTP por modelo: quem da resiliencia aqui e a cadeia de fallback,
 # e repetir muito no mesmo modelo sobrecarregado so aumenta a espera do usuario.
-TENTATIVAS = 2
+TENTATIVAS_HTTP = 2
+# Quantas vezes uma etapa pode ser executada ate ser aprovada na verificacao.
+TENTATIVAS_ETAPA = 2
 
-# Subcategorias usadas apenas como contexto de classificacao no prompt.
-CATEGORIAS = {
-    "INSUMOS AGRÍCOLAS": "sementes, fertilizantes, defensivos agrícolas, corretivos",
-    "MANUTENÇÃO E OPERAÇÃO": (
-        "combustíveis e lubrificantes; peças, parafusos e componentes mecânicos; "
-        "manutenção de máquinas e equipamentos; pneus, filtros, correias; "
-        "ferramentas e utensílios"
-    ),
-    "RECURSOS HUMANOS": "mão de obra temporária; salários e encargos",
-    "SERVIÇOS OPERACIONAIS": (
-        "frete e transporte; colheita terceirizada; secagem e armazenagem; "
-        "pulverização e aplicação"
-    ),
-    "INFRAESTRUTURA E UTILIDADES": (
-        "energia elétrica; arrendamento de terras; construções e reformas; "
-        "materiais de construção"
-    ),
-    "ADMINISTRATIVAS": (
-        "honorários contábeis, advocatícios e agronômicos; despesas bancárias e financeiras"
-    ),
-    "SEGUROS E PROTEÇÃO": "seguro agrícola; seguro de ativos (máquinas/veículos); seguro prestamista",
-    "IMPOSTOS E TAXAS": "ITR, IPTU, IPVA, INCRA-CCIR",
-    "INVESTIMENTOS": (
-        "aquisição de máquinas e implementos; de veículos; de imóveis; infraestrutura rural"
-    ),
-}
 
-INSTRUCAO = """Você é um agente especialista em notas fiscais eletrônicas brasileiras (DANFE).
-Extraia os dados da nota fiscal em anexo, que representa um registro de CONTAS A PAGAR.
+def _ms(inicio: float) -> int:
+    return round((time.perf_counter() - inicio) * 1000)
 
-Regras de extração:
-- FORNECEDOR é o EMITENTE da nota (bloco "IDENTIFICAÇÃO DO EMITENTE"): razão social,
-  nome fantasia (se houver) e CNPJ.
-- FATURADO é o DESTINATÁRIO da nota (bloco "DESTINATÁRIO/REMETENTE"): nome e CPF.
-- CNPJ no formato 00.000.000/0000-00 e CPF no formato 000.000.000-00.
-- Datas sempre no formato YYYY-MM-DD.
-- Valores como número decimal, usando ponto como separador (ex.: 3086.75).
-- valorTotal é o "VALOR TOTAL DA NOTA".
-- As parcelas vêm do bloco FATURA/DUPLICATAS, na ordem dos vencimentos, numeradas a
-  partir de 1. Se a nota não tiver esse bloco, devolva uma única parcela com
-  valor = valorTotal e a data de vencimento que constar na nota (ou null).
-- quantidadeParcelas deve ser igual ao tamanho da lista de parcelas.
-- descricaoProdutos deve conter a descrição de cada item do bloco DADOS DOS PRODUTOS/SERVIÇOS,
-  exatamente como está escrita.
-- Não invente dados: use apenas o que consta no documento. Se uma informação não constar,
-  devolva null no campo correspondente.
 
-Regra de classificação:
-- tiposDespesa NÃO é um campo extraído do documento. Ele deve ser interpretado a partir
-  das descrições dos produtos, escolhendo entre as categorias abaixo:
-
-{categorias}
-
-- Considere a finalidade da compra em uma propriedade rural, não apenas o nome do item.
-- Devolva a categoria que melhor representa a nota como um todo (normalmente uma só).
-  Inclua mais de uma apenas quando a nota misturar itens de categorias claramente distintas.
-
-Exemplos:
-- Compra de óleo diesel -> MANUTENÇÃO E OPERAÇÃO
-- Graxa, rolamentos, buchas e peças de reposição -> MANUTENÇÃO E OPERAÇÃO
-- Compra de material hidráulico -> INFRAESTRUTURA E UTILIDADES
-- Cimento, tijolos, telhas -> INFRAESTRUTURA E UTILIDADES
-- Sementes de soja, adubo, herbicida, calcário -> INSUMOS AGRÍCOLAS
-- Trator, plantadeira ou caminhão novos -> INVESTIMENTOS
-- Frete de grãos -> SERVIÇOS OPERACIONAIS
-"""
+class _Ping(BaseModel):
+    ok: bool
 
 
 class Agent1:
@@ -134,41 +98,131 @@ class Agent1:
                 api_key=self._api_key,
                 # Repete a chamada em erros transitórios do Gemini (429, 5xx).
                 http_options=types.HttpOptions(
-                    retry_options=types.HttpRetryOptions(attempts=TENTATIVAS)
+                    retry_options=types.HttpRetryOptions(attempts=TENTATIVAS_HTTP)
                 ),
             )
         return self._client
 
-    def _instrucao(self) -> str:
-        categorias = "\n".join(f"- {nome}: {exemplos}" for nome, exemplos in CATEGORIAS.items())
-        return INSTRUCAO.format(categorias=categorias)
+    # -----------------------------------------------------------------------
+    # Extracao em etapas
+    # -----------------------------------------------------------------------
 
-    def extrair_dados(self, caminho_arquivo: str | Path) -> NotaFiscalExtraida:
-        """Lê o PDF da nota fiscal e devolve os dados já estruturados."""
-        pdf = Path(caminho_arquivo).read_bytes()
+    def extrair_dados(self, caminho_arquivo: str | Path) -> ResultadoExtracao:
+        """Lê o PDF da nota fiscal e devolve os dados estruturados com o relatório das etapas."""
+        pdf = types.Part.from_bytes(
+            data=Path(caminho_arquivo).read_bytes(), mime_type="application/pdf"
+        )
+        contexto: Contexto = {}
+        relatorio: list[VerificacaoEtapa] = []
 
-        conteudo = [
-            types.Part.from_bytes(data=pdf, mime_type="application/pdf"),
-            "Extraia os dados desta nota fiscal e classifique a despesa.",
-        ]
+        for indice, etapa in enumerate(ETAPAS):
+            verificacao = self._executar_etapa(etapa, pdf, contexto)
+            relatorio.append(verificacao)
+
+            if verificacao.status is not StatusEtapa.CONCLUIDA:
+                # Trava: sem a etapa atual aprovada, nenhuma das seguintes roda.
+                relatorio += [self._nao_executada(e.id, e.titulo) for e in ETAPAS[indice + 1 :]]
+                relatorio.append(self._nao_executada(ID_CONSOLIDACAO, TITULO_CONSOLIDACAO))
+                return ResultadoExtracao(concluida=False, etapas=relatorio)
+
+        verificacao, nota = self._consolidar(contexto)
+        relatorio.append(verificacao)
+        concluida = verificacao.status is StatusEtapa.CONCLUIDA
+        return ResultadoExtracao(
+            concluida=concluida, etapas=relatorio, dados=nota if concluida else None
+        )
+
+    def _executar_etapa(
+        self, etapa: Etapa, pdf: types.Part, contexto: Contexto
+    ) -> VerificacaoEtapa:
+        """Roda a etapa até ela ser aprovada na verificação ou acabarem as tentativas."""
+        inicio = time.perf_counter()
         config = types.GenerateContentConfig(
-            system_instruction=self._instrucao(),
+            system_instruction=etapa.instrucao,
             response_mime_type="application/json",
-            response_schema=NotaFiscalExtraida,
+            response_schema=etapa.esquema,
             # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
             # temperature baixa degrada o raciocinio e pode causar loops.
         )
+        problemas: list[str] = []
+        avisos: list[str] = []
+        modelo: str | None = None
 
-        resposta = self._gerar_com_fallback(conteudo, config)
+        for tentativa in range(1, TENTATIVAS_ETAPA + 1):
+            pedido = etapa.pedido(contexto)
+            if problemas:
+                # Redundancia: a nova leitura recebe os motivos da reprovacao anterior.
+                pedido += (
+                    "\n\nATENÇÃO: a leitura anterior desta etapa foi reprovada na verificação "
+                    "pelos motivos abaixo. Releia o documento com cuidado e corrija:\n"
+                    + "\n".join(f"- {p}" for p in problemas)
+                )
+            conteudo = [pdf, pedido] if etapa.usa_pdf else [pedido]
 
-        dados = resposta.parsed
-        if not isinstance(dados, NotaFiscalExtraida):
-            raise ValueError("O Gemini não devolveu um JSON no formato esperado.")
+            resposta, modelo = self._gerar_com_fallback(conteudo, config)
+            dados = resposta.parsed
+            if not isinstance(dados, etapa.esquema):
+                problemas, avisos = ["O modelo não devolveu um JSON no esquema da etapa."], []
+                logger.warning("Etapa %s, tentativa %d: resposta fora do esquema.", etapa.id, tentativa)
+                continue
 
-        return self._normalizar(dados)
+            dados = etapa.normalizar(dados)
+            problemas, avisos = etapa.verificar(dados, contexto)
+            if not problemas:
+                contexto.update(dados.model_dump(mode="json"))
+                return VerificacaoEtapa(
+                    etapa=etapa.id,
+                    titulo=etapa.titulo,
+                    status=StatusEtapa.CONCLUIDA,
+                    tentativas=tentativa,
+                    modelo=modelo,
+                    duracaoMs=_ms(inicio),
+                    avisos=avisos,
+                )
+            logger.warning("Etapa %s reprovada na tentativa %d: %s", etapa.id, tentativa, problemas)
 
-    def _gerar_com_fallback(self, conteudo: list, config: types.GenerateContentConfig):
-        """Percorre a cadeia de modelos ate um responder.
+        return VerificacaoEtapa(
+            etapa=etapa.id,
+            titulo=etapa.titulo,
+            status=StatusEtapa.FALHOU,
+            tentativas=TENTATIVAS_ETAPA,
+            modelo=modelo,
+            duracaoMs=_ms(inicio),
+            problemas=problemas,
+            avisos=avisos,
+        )
+
+    @staticmethod
+    def _consolidar(contexto: Contexto) -> tuple[VerificacaoEtapa, NotaFiscalExtraida | None]:
+        """Monta a nota com o que as etapas aprovaram e verifica o conjunto."""
+        inicio = time.perf_counter()
+        nota: NotaFiscalExtraida | None = None
+        try:
+            nota = NotaFiscalExtraida.model_validate(contexto)
+            problemas, _ = verificar_consolidacao(nota)
+        except ValidationError as erro:
+            problemas = [f"JSON final fora do esquema: {e['loc']} — {e['msg']}" for e in erro.errors()]
+
+        return (
+            VerificacaoEtapa(
+                etapa=ID_CONSOLIDACAO,
+                titulo=TITULO_CONSOLIDACAO,
+                status=StatusEtapa.FALHOU if problemas else StatusEtapa.CONCLUIDA,
+                tentativas=1,
+                duracaoMs=_ms(inicio),
+                problemas=problemas,
+            ),
+            nota,
+        )
+
+    @staticmethod
+    def _nao_executada(id_etapa: str, titulo: str) -> VerificacaoEtapa:
+        return VerificacaoEtapa(etapa=id_etapa, titulo=titulo, status=StatusEtapa.NAO_EXECUTADA)
+
+    def _gerar_com_fallback(
+        self, conteudo: list, config: types.GenerateContentConfig
+    ) -> tuple[types.GenerateContentResponse, str]:
+        """Percorre a cadeia de modelos ate um responder; devolve a resposta e o modelo.
 
         So troca de modelo em erro de servidor (5xx, tipicamente sobrecarga). Erros
         de chave, cota ou requisicao invalida sobem direto: trocar de modelo nao
@@ -188,18 +242,100 @@ class Agent1:
                 continue
 
             if modelo != self._modelos[0]:
-                logger.info("Extracao feita com o modelo reserva %s.", modelo)
-            return resposta
+                logger.info("Chamada atendida pelo modelo reserva %s.", modelo)
+            return resposta, modelo
 
         raise ultimo_erro  # type: ignore[misc]
 
-    @staticmethod
-    def _normalizar(dados: NotaFiscalExtraida) -> NotaFiscalExtraida:
-        """Garante a consistência entre campos que o modelo pode devolver divergentes."""
-        for numero, parcela in enumerate(dados.parcelas, start=1):
-            parcela.numero = numero
-        if len(dados.parcelas) == 1 and dados.parcelas[0].valor is None:
-            dados.parcelas[0].valor = dados.valorTotal
-        dados.quantidadeParcelas = len(dados.parcelas)
-        dados.tiposDespesa = list(dict.fromkeys(dados.tiposDespesa))
-        return dados
+    # -----------------------------------------------------------------------
+    # Verificacao de funcionamento
+    # -----------------------------------------------------------------------
+
+    def verificar_funcionamento(self) -> SaudeAgent:
+        """Diagnostica o agent: chave, modelos da cadeia e uma geração estruturada real."""
+        base = {
+            "etapas": [e.titulo for e in ETAPAS] + [TITULO_CONSOLIDACAO],
+            "verificadoEm": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        if not self._api_key:
+            return SaudeAgent(
+                status="inoperante",
+                mensagem="Chave da API do Gemini não informada.",
+                chaveInformada=False,
+                **base,
+            )
+
+        client = self._obter_client()
+        modelos: list[StatusModelo] = []
+        for modelo in self._modelos:
+            inicio = time.perf_counter()
+            try:
+                client.models.get(model=modelo)
+                modelos.append(StatusModelo(modelo=modelo, disponivel=True, latenciaMs=_ms(inicio)))
+            except genai_errors.APIError as erro:
+                if chave_recusada(erro):
+                    return SaudeAgent(
+                        status="inoperante",
+                        mensagem="O Gemini recusou a chave da API. Verifique a chave cadastrada.",
+                        chaveInformada=True,
+                        chaveValida=False,
+                        **base,
+                    )
+                modelos.append(
+                    StatusModelo(
+                        modelo=modelo, disponivel=False, latenciaMs=_ms(inicio), erro=_resumo(erro)
+                    )
+                )
+
+        teste = self._testar_geracao()
+        preferido_ok = bool(modelos) and modelos[0].disponivel and teste.modelo == self._modelos[0]
+
+        if not teste.sucesso:
+            status, mensagem = "inoperante", "O Gemini não conseguiu gerar uma resposta estruturada."
+        elif preferido_ok and all(m.disponivel for m in modelos):
+            status, mensagem = "operacional", "Agent funcionando com o modelo preferido."
+        else:
+            status = "degradado"
+            mensagem = f"Agent funcionando, mas atendido pelo modelo reserva {teste.modelo}."
+            if preferido_ok:
+                mensagem = "Agent funcionando, mas há modelos reserva indisponíveis."
+
+        return SaudeAgent(
+            status=status,
+            mensagem=mensagem,
+            chaveInformada=True,
+            chaveValida=True,
+            modelos=modelos,
+            testeGeracao=teste,
+            **base,
+        )
+
+    def _testar_geracao(self) -> TesteGeracao:
+        """Mesmo caminho das etapas (cadeia de modelos + JSON com esquema), em miniatura."""
+        inicio = time.perf_counter()
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json", response_schema=_Ping
+        )
+        try:
+            resposta, modelo = self._gerar_com_fallback(
+                ['Teste de funcionamento. Responda exatamente {"ok": true}.'], config
+            )
+        except genai_errors.APIError as erro:
+            return TesteGeracao(sucesso=False, latenciaMs=_ms(inicio), erro=_resumo(erro))
+
+        sucesso = isinstance(resposta.parsed, _Ping) and resposta.parsed.ok
+        return TesteGeracao(
+            sucesso=sucesso,
+            modelo=modelo,
+            latenciaMs=_ms(inicio),
+            erro=None if sucesso else "Resposta fora do esquema esperado.",
+        )
+
+
+def chave_recusada(erro: genai_errors.APIError) -> bool:
+    # Chave invalida volta como 400 INVALID_ARGUMENT ("API key not valid"), nao so 401/403.
+    return erro.code in (401, 403) or (erro.code == 400 and "API key" in (erro.message or ""))
+
+
+def _resumo(erro: genai_errors.APIError) -> str:
+    return f"HTTP {erro.code}: {(erro.message or erro.status or 'erro desconhecido')[:160]}"

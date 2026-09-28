@@ -3,6 +3,7 @@ import { obterStatusChave, obterToken, sair, SessaoExpirada } from './api'
 import ChaveApi from './ChaveApi'
 import Extracao from './Extracao'
 import Login from './Login'
+import SaudeAgent from './SaudeAgent'
 import type { StatusChaveApi } from './types'
 
 type Tema = 'claro' | 'escuro'
@@ -86,6 +87,7 @@ function Inicio({ aoExpirarSessao }: { aoExpirarSessao: () => void }) {
       {erro && <p className="erro erro-topo">{erro}</p>}
 
       <ChaveApi status={status} aoAlterar={setStatus} aoExpirarSessao={aoExpirarSessao} />
+      <SaudeAgent chaveInformada={status?.informada ?? false} aoExpirarSessao={aoExpirarSessao} />
       <Extracao chaveInformada={status?.informada ?? false} aoExpirarSessao={aoExpirarSessao} />
     </main>
   )

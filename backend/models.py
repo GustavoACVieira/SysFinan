@@ -6,9 +6,16 @@ mesmo contrato em frontend/src/types.ts.
 
 Os campos extraidos do documento aceitam null: se a informacao nao constar na
 nota, o Gemini deve devolver null em vez de inventar um valor.
+
+Organizacao:
+- Esquemas das etapas: cada um e o response_schema de uma etapa do Agent1, que
+  so avanca para o proximo quando o atual passa na verificacao.
+- NotaFiscalExtraida: a nota completa, composta pelos esquemas das etapas.
+- Verificacao: o relatorio de cada etapa e o diagnostico de funcionamento do agent.
 """
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -52,24 +59,119 @@ class Parcela(BaseModel):
     valor: float | None = Field(description="Valor da parcela")
 
 
-class NotaFiscalExtraida(BaseModel):
-    """Dados extraidos de uma nota fiscal de CONTAS A PAGAR."""
+# ---------------------------------------------------------------------------
+# Esquemas das etapas
+# ---------------------------------------------------------------------------
+
+
+class EsquemaIdentificacao(BaseModel):
+    """Etapa 1 — quem emitiu a nota, para quem e qual e a nota."""
 
     fornecedor: Fornecedor
     faturado: Faturado
     numeroNotaFiscal: str | None = Field(description="Numero da nota fiscal")
     dataEmissao: str | None = Field(description="Data de emissao da nota (YYYY-MM-DD)")
+
+
+class EsquemaProdutos(BaseModel):
+    """Etapa 2 — o que foi comprado."""
+
     descricaoProdutos: list[str] = Field(
         description="Descricao de cada produto/servico constante na nota"
     )
+
+
+class EsquemaFinanceiro(BaseModel):
+    """Etapa 3 — quanto e quando pagar."""
+
     quantidadeParcelas: int = Field(description="Quantidade total de parcelas da nota")
     parcelas: list[Parcela] = Field(
         description="Parcelas da nota, uma para cada vencimento distinto"
     )
     valorTotal: float | None = Field(description="Valor total da nota fiscal")
+
+
+class EsquemaClassificacao(BaseModel):
+    """Etapa 4 — em que tipo de despesa a nota se enquadra (interpretado, nao extraido)."""
+
     tiposDespesa: list[CategoriaDespesa] = Field(
         description=(
             "Classificacao da despesa interpretada a partir dos produtos da nota. "
             "Nao e um campo extraido do documento. Deve conter ao menos uma categoria."
         )
     )
+
+
+# A ordem das bases e a inversa da ordem dos campos: o Pydantic monta os campos
+# percorrendo as bases de tras para frente, e o JSON precisa sair na ordem das etapas.
+class NotaFiscalExtraida(
+    EsquemaClassificacao, EsquemaFinanceiro, EsquemaProdutos, EsquemaIdentificacao
+):
+    """Dados extraidos de uma nota fiscal de CONTAS A PAGAR (todas as etapas juntas)."""
+
+
+# ---------------------------------------------------------------------------
+# Verificacao
+# ---------------------------------------------------------------------------
+
+
+class StatusEtapa(str, Enum):
+    CONCLUIDA = "concluida"
+    FALHOU = "falhou"
+    NAO_EXECUTADA = "nao_executada"  # uma etapa anterior falhou
+
+
+class VerificacaoEtapa(BaseModel):
+    """Relatorio da verificacao de uma etapa: e ele que libera (ou nao) a proxima."""
+
+    etapa: str
+    titulo: str
+    status: StatusEtapa
+    tentativas: int = 0
+    modelo: str | None = Field(default=None, description="Modelo que atendeu a etapa")
+    duracaoMs: int = 0
+    problemas: list[str] = Field(
+        default_factory=list, description="Falhas que impedem concluir a etapa"
+    )
+    avisos: list[str] = Field(
+        default_factory=list, description="Pontos de atencao que nao impedem concluir"
+    )
+
+
+class ResultadoExtracao(BaseModel):
+    """Resposta do POST /extrair: a nota (se todas as etapas concluiram) e o relatorio."""
+
+    concluida: bool
+    etapas: list[VerificacaoEtapa]
+    dados: NotaFiscalExtraida | None = None
+
+
+class StatusModelo(BaseModel):
+    modelo: str
+    disponivel: bool
+    latenciaMs: int | None = None
+    erro: str | None = None
+
+
+class TesteGeracao(BaseModel):
+    """Chamada real ao Gemini com saida estruturada, igual a usada nas etapas."""
+
+    sucesso: bool
+    modelo: str | None = None
+    latenciaMs: int | None = None
+    erro: str | None = None
+
+
+class SaudeAgent(BaseModel):
+    """Diagnostico de funcionamento do Agent1."""
+
+    status: Literal["operacional", "degradado", "inoperante"]
+    mensagem: str
+    chaveInformada: bool
+    chaveValida: bool | None = Field(
+        default=None, description="null quando nao foi possivel testar (sem chave)"
+    )
+    modelos: list[StatusModelo] = Field(default_factory=list)
+    testeGeracao: TesteGeracao | None = None
+    etapas: list[str] = Field(description="Etapas do pipeline, na ordem de execucao")
+    verificadoEm: str

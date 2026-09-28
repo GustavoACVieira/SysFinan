@@ -15,6 +15,8 @@
   --erro-fundo: #fdf3f2;
   --sucesso: #1e7a46;
   --sucesso-fundo: #edf7f0;
+  --alerta: #9a6100;
+  --alerta-fundo: #fdf5e6;
   --codigo-fundo: #fafbfc;
   --sombra: 0 1px 2px rgba(20, 24, 31, 0.05), 0 1px 3px rgba(20, 24, 31, 0.04);
 }
@@ -36,6 +38,8 @@
   --erro-fundo: #2a1d1c;
   --sucesso: #6fcf97;
   --sucesso-fundo: #1b2a21;
+  --alerta: #e8b45a;
+  --alerta-fundo: #2c2415;
   --codigo-fundo: #16181c;
   --sombra: none;
 }
@@ -162,7 +166,12 @@ h1 {
   transition: background-color 0.15s, border-color 0.15s;
 }
 
-.botao-secundario:hover {
+.botao-secundario:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.botao-secundario:hover:not(:disabled) {
   background: var(--realce);
   border-color: var(--texto-suave);
 }
@@ -402,4 +411,148 @@ h1 {
 
 .erro-topo {
   margin: 0 0 16px;
+}
+
+.selo-alerta {
+  background: var(--alerta-fundo);
+  color: var(--alerta);
+}
+
+/* ---------- Funcionamento do agent ---------- */
+
+.saude-mensagem {
+  margin: 0;
+}
+
+.saude-lista {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+}
+
+.saude-lista li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.saude-lista li + li {
+  border-top: 1px solid var(--borda);
+}
+
+.saude-lista .ok {
+  color: var(--sucesso);
+}
+
+.saude-lista .falha {
+  color: var(--erro);
+}
+
+.saude-nome {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 13px;
+}
+
+.saude-detalhe {
+  margin-left: auto;
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Etapas da extracao ---------- */
+
+.etapas {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.etapa {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.etapa + .etapa {
+  border-top: 1px solid var(--borda);
+}
+
+.etapa-marcador {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--realce);
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.etapa-concluida .etapa-marcador {
+  background: var(--sucesso-fundo);
+  color: var(--sucesso);
+}
+
+.etapa-falhou .etapa-marcador {
+  background: var(--erro-fundo);
+  color: var(--erro);
+}
+
+.etapa-nao_executada {
+  opacity: 0.6;
+}
+
+.etapa-corpo {
+  flex: 1;
+  min-width: 0;
+}
+
+.etapa-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.etapa-titulo {
+  font-weight: 500;
+}
+
+.etapa-status {
+  flex: none;
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+}
+
+.etapa-falhou .etapa-status {
+  color: var(--erro);
+}
+
+.etapa-meta {
+  margin: 2px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.8rem;
+}
+
+.etapa-problemas,
+.etapa-avisos {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+
+.etapa-problemas {
+  color: var(--erro);
+}
+
+.etapa-avisos {
+  color: var(--alerta);
 }

@@ -34,3 +34,52 @@ export interface StatusChaveApi {
   /** Apenas o final da chave (ex.: "••••abcd"), nunca a chave inteira. */
   mascara: string | null
 }
+
+export type StatusEtapa = 'concluida' | 'falhou' | 'nao_executada'
+
+/** Relatório da verificação de uma etapa do Agent1. */
+export interface VerificacaoEtapa {
+  etapa: string
+  titulo: string
+  status: StatusEtapa
+  tentativas: number
+  modelo: string | null
+  duracaoMs: number
+  /** Falhas que impediram a etapa de concluir. */
+  problemas: string[]
+  /** Pontos de atenção que não impediram a etapa. */
+  avisos: string[]
+}
+
+/** Resposta do POST /extrair: `dados` só vem quando todas as etapas concluíram. */
+export interface ResultadoExtracao {
+  concluida: boolean
+  etapas: VerificacaoEtapa[]
+  dados: NotaFiscalExtraida | null
+}
+
+export interface StatusModelo {
+  modelo: string
+  disponivel: boolean
+  latenciaMs: number | null
+  erro: string | null
+}
+
+export interface TesteGeracao {
+  sucesso: boolean
+  modelo: string | null
+  latenciaMs: number | null
+  erro: string | null
+}
+
+/** Diagnóstico de funcionamento do Agent1 (GET /saude/agent). */
+export interface SaudeAgent {
+  status: 'operacional' | 'degradado' | 'inoperante'
+  mensagem: string
+  chaveInformada: boolean
+  chaveValida: boolean | null
+  modelos: StatusModelo[]
+  testeGeracao: TesteGeracao | null
+  etapas: string[]
+  verificadoEm: string
+}

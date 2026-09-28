@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { extrairDados, SessaoExpirada } from './api'
-import type { NotaFiscalExtraida } from './types'
+import Etapas from './Etapas'
+import type { ResultadoExtracao } from './types'
 
 interface Props {
   chaveInformada: boolean
@@ -14,14 +15,14 @@ function formatarTamanho(bytes: number): string {
 
 export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
   const [arquivo, setArquivo] = useState<File | null>(null)
-  const [dados, setDados] = useState<NotaFiscalExtraida | null>(null)
+  const [resultado, setResultado] = useState<ResultadoExtracao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [copiado, setCopiado] = useState(false)
 
   function selecionarArquivo(event: React.ChangeEvent<HTMLInputElement>) {
     setArquivo(event.target.files?.[0] ?? null)
-    setDados(null)
+    setResultado(null)
     setErro(null)
   }
 
@@ -30,10 +31,10 @@ export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
 
     setCarregando(true)
     setErro(null)
-    setDados(null)
+    setResultado(null)
 
     try {
-      setDados(await extrairDados(arquivo))
+      setResultado(await extrairDados(arquivo))
     } catch (e) {
       if (e instanceof SessaoExpirada) return aoExpirarSessao()
       setErro(e instanceof Error ? e.message : 'Erro inesperado na extração')
@@ -41,6 +42,9 @@ export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
       setCarregando(false)
     }
   }
+
+  const dados = resultado?.dados ?? null
+  const etapaReprovada = resultado?.etapas.find((e) => e.status === 'falhou')
 
   async function copiarJson() {
     if (!dados) return
@@ -86,11 +90,37 @@ export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
           {carregando ? 'Extraindo…' : 'Extrair dados'}
         </button>
 
+        {carregando && (
+          <p className="dica">
+            O agent executa as etapas em sequência e verifica cada uma antes de seguir. Isso pode
+            levar alguns minutos.
+          </p>
+        )}
         {!chaveInformada && (
           <p className="dica">Informe a chave da API do Gemini acima para liberar a extração.</p>
         )}
         {erro && <p className="erro">{erro}</p>}
       </section>
+
+      {resultado && (
+        <section className="painel">
+          <div className="painel-cabecalho">
+            <h2>Etapas da extração</h2>
+            <span className={`selo ${resultado.concluida ? 'selo-ativa' : 'selo-inativa'}`}>
+              <span className="selo-ponto" aria-hidden="true" />
+              {resultado.concluida ? 'Todas aprovadas' : 'Interrompida'}
+            </span>
+          </div>
+
+          {etapaReprovada && (
+            <p className="erro erro-topo">
+              A extração parou na etapa “{etapaReprovada.titulo}”: ela foi reprovada na
+              verificação e as etapas seguintes não foram executadas.
+            </p>
+          )}
+          <Etapas etapas={resultado.etapas} />
+        </section>
+      )}
 
       {dados && (
         <section className="painel">

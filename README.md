@@ -41,7 +41,34 @@ Processador de PDF que utiliza um **Agent** (Gemini) para extrair os dados de um
 
 Fluxo: o usuário entra com o login de administrador, informa a chave da API do Gemini
 (se ainda não estiver cadastrada), carrega o PDF da nota fiscal na interface web, aciona o botão
-**EXTRAIR DADOS**, o Agent processa o documento e o JSON é exibido na tela.
+**EXTRAIR DADOS**, o Agent processa o documento em etapas verificadas e o JSON é exibido na tela.
+
+### Extração em etapas
+
+Cada etapa tem seu próprio esquema Pydantic (em `backend/models.py`) e é uma chamada
+separada ao Gemini. O Agent **só passa para a próxima etapa quando a atual é aprovada pela
+verificação**:
+
+| # | Etapa | Esquema | O que a verificação exige |
+|---|-------|---------|---------------------------|
+| 1 | Identificação | `EsquemaIdentificacao` | Razão social e CNPJ do fornecedor, nome do faturado, número e data de emissão; CNPJ/CPF e data no formato certo |
+| 2 | Produtos | `EsquemaProdutos` | Ao menos um produto |
+| 3 | Financeiro | `EsquemaFinanceiro` | Valor total positivo, ao menos uma parcela, parcelas com valor e **soma das parcelas = valor total** |
+| 4 | Classificação | `EsquemaClassificacao` | Ao menos uma das 9 categorias (feita só com o texto já extraído, sem reenviar o PDF) |
+| 5 | Consolidação | `NotaFiscalExtraida` | Redundância: repete todas as verificações sobre a nota montada e revalida o JSON final contra o esquema completo |
+
+Redundância e verificação (`backend/agents/agent1/verificacao.py`):
+
+- Se uma etapa é reprovada, o Agent a **refaz informando ao modelo os motivos da reprovação**
+  (até 2 tentativas). Se continuar reprovada, o pipeline para ali e as etapas seguintes
+  ficam como *não executadas*.
+- Pontos que não impedem a etapa (ex.: dígitos verificadores de CNPJ/CPF que não conferem,
+  comuns em notas de teste) viram **avisos** no relatório.
+- Cada chamada percorre a cadeia de modelos Flash: se o preferido estiver sobrecarregado
+  (HTTP 5xx), usa o próximo.
+
+`NotaFiscalExtraida` é a composição dos quatro esquemas das etapas, então o JSON final
+continua exatamente no formato abaixo.
 
 ### Campos extraídos
 
@@ -121,23 +148,27 @@ compra de material hidráulico → `INFRAESTRUTURA E UTILIDADES`.
 SysFinan/
 ├── backend/                            # API e Agents (Python)
 │   ├── main.py                         # FastAPI: login, chave da API e POST /extrair
-│   ├── models.py                       # Contrato do JSON (Pydantic)
+│   ├── models.py                       # Esquemas Pydantic: etapas, nota completa e verificação
 │   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
 │   ├── agents/
 │   │   └── agent1/
 │   │       ├── __init__.py
-│   │       └── manipulacao_dados.py    # class Agent1 -> extrair_dados(file_path)
-│   ├── requirements.txt
+│   │       ├── manipulacao_dados.py    # class Agent1 -> extrair_dados(file_path) e verificar_funcionamento()
+│   │       ├── etapas.py               # Ordem das etapas, instruções e esquema de cada uma
+│   │       └── verificacao.py          # Regras que aprovam/reprovam cada etapa
 │   └── .env
 ├── frontend/                           # Interface web (TypeScript + React + Vite)
 │   ├── src/
 │   │   ├── App.tsx                     # Alterna entre login e a área logada
 │   │   ├── Login.tsx                   # Tela de login
 │   │   ├── ChaveApi.tsx                # Cadastro e situação da chave do Gemini
+│   │   ├── SaudeAgent.tsx              # Verificação de funcionamento do agent
 │   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
+│   │   ├── Etapas.tsx                  # Relatório das etapas da extração
 │   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
 │   │   └── types.ts                    # Contrato do JSON da nota fiscal
 │   └── package.json
+├── requirements.txt                    # Dependências do back-end (na raiz, para o Render)
 ├── README.md
 └── .gitignore
 ```
@@ -156,6 +187,41 @@ embutir a URL da API no build do Vite.
 
 O endpoint de saúde da API é `GET /health`.
 
+### Configuração manual (sem Blueprint)
+
+Se os serviços forem criados à mão no painel do Render, use os mesmos valores do `render.yaml`:
+
+**API — Web Service**
+
+| Campo | Valor |
+|-------|-------|
+| Root Directory | *(vazio — raiz do repositório)* |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT` |
+| Health Check Path | `/health` |
+| Variáveis | `GEMINI_API_KEY`, `FRONTEND_URL` e, opcionalmente, `GEMINI_MODEL`, `SYSFINAN_USUARIO`, `SYSFINAN_SENHA` |
+
+**Frontend — Static Site**
+
+| Campo | Valor |
+|-------|-------|
+| Build Command | `npm ci --prefix frontend && npm run build --prefix frontend` |
+| Publish Directory | `frontend/dist` |
+| Variáveis | `VITE_API_URL` |
+
+Erros comuns ao iniciar a API:
+
+- `Could not import module "main"`: o Start Command rodou na raiz, onde não existe `main.py`
+  — falta o `cd backend` (equivalente: `uvicorn main:app --app-dir backend ...`).
+- `No open ports detected`: falta `--host 0.0.0.0 --port $PORT`; o padrão do uvicorn
+  (`127.0.0.1:8000`) não é visível para o Render.
+- Erro de versão do Python no build: defina `PYTHON_VERSION=3.14.7` (a usada no desenvolvimento).
+
+> A chave cadastrada pela tela é gravada no disco do servidor, que no Render é temporário:
+> some a cada deploy ou reinício. Para ela ficar permanente, cadastre-a em
+> **Environment → GEMINI_API_KEY**. As sessões de login também são perdidas quando o serviço
+> gratuito hiberna — basta entrar de novo.
+
 ---
 
 ## Como executar o back-end
@@ -172,7 +238,7 @@ A API sobe em `http://localhost:8000` e a documentação interativa em
 `http://localhost:8000/docs`.
 
 > Execute o `uvicorn` a partir da pasta `backend/`: é ela que coloca o pacote `agents` no
-> caminho de importação.
+> caminho de importação. A partir da raiz, use `uvicorn main:app --app-dir backend --reload`.
 
 Variáveis de ambiente:
 
@@ -182,20 +248,27 @@ Variáveis de ambiente:
 | `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula; os demais Flash servem de reserva | `gemini-3.8-flash` → `3.7` → `3.6` → `3.5` |
 | `SYSFINAN_USUARIO` | Usuário do login | `admin` |
 | `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
+| `FRONTEND_URL` | URLs do front liberadas no CORS, separadas por vírgula (no Render, a URL pública do front) | `http://localhost:5173,http://127.0.0.1:5173` |
 
 ### Endpoints
 
-Todas as rotas, exceto `/login`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
+Todas as rotas, exceto `/login` e `/health`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
 ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 
 | Método | Rota | Entrada | Saída |
 |--------|------|---------|-------|
+| `GET` | `/health` | — | `{ "status": "ok" }` (health check leve, sem chamar o Gemini) |
+| `GET` | `/saude/agent` | — | Diagnóstico do agent: chave válida, disponibilidade de cada modelo e um teste real de geração estruturada |
 | `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
 | `POST` | `/logout` | — | `204` |
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
 | `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (grava em `backend/.env`) |
 | `DELETE` | `/chave-api` | — | situação da chave |
-| `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | JSON no formato acima |
+| `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
+
+`dados` só vem preenchido quando todas as etapas são aprovadas; `etapas` traz, para cada uma,
+o status (`concluida`, `falhou`, `nao_executada`), as tentativas, o modelo usado, os problemas e
+os avisos.
 
 O `main.py` apenas recebe o arquivo e delega ao agente, conforme a estrutura de Agents:
 
@@ -203,12 +276,13 @@ O `main.py` apenas recebe o arquivo e delega ao agente, conforme a estrutura de 
 from agents.agent1.manipulacao_dados import Agent1
 
 agent1 = Agent1()
-dados = agent1.extrair_dados(caminho_do_pdf)
+resultado = agent1.extrair_dados(caminho_do_pdf)   # ResultadoExtracao
+resultado.dados                                    # NotaFiscalExtraida (JSON acima)
 ```
 
-O `Agent1` envia o PDF ao Gemini com `response_schema` gerado a partir dos modelos Pydantic de
-`models.py` — o mesmo contrato declarado em `frontend/src/types.ts` — e a classificação da
-despesa é restrita às 9 categorias pela enumeração `CategoriaDespesa`.
+Cada etapa usa como `response_schema` o seu esquema Pydantic de `models.py` — o mesmo contrato
+declarado em `frontend/src/types.ts` — e a classificação da despesa é restrita às 9 categorias
+pela enumeração `CategoriaDespesa`.
 
 ---
 
@@ -233,6 +307,11 @@ Ao abrir, o front exibe a tela de login (usuário `admin`, senha `cruzeiro`). De
 o painel **Chave da API do Gemini** mostra se a chave está **Ativa** (com os 4 últimos
 caracteres) ou **Não informada**, e permite cadastrar, substituir ou remover a chave. O botão
 **EXTRAIR DADOS** só fica liberado com a chave informada.
+
+O painel **Funcionamento do agent** roda o diagnóstico de `GET /saude/agent` sob demanda e mostra
+o status (**Operacional**, **Degradado** ou **Inoperante**), cada modelo da cadeia e o
+resultado do teste de geração. Depois da extração, o painel **Etapas da extração** mostra o
+relatório de cada etapa.
 
 O front envia o PDF em `multipart/form-data` (campo `arquivo`) para `POST {VITE_API_URL}/extrair`
 e exibe na tela o JSON devolvido.
