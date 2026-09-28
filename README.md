@@ -142,6 +142,20 @@ SysFinan/
 └── .gitignore
 ```
 
+## Deploy no Render
+
+O arquivo `render.yaml` define dois serviços no mesmo repositório: a API como Web Service
+Python e a interface como Static Site. O deploy da API usa a porta fornecida pelo Render e
+escuta em todas as interfaces (`0.0.0.0`); o frontend é publicado a partir de `frontend/dist`.
+
+Ao criar o Blueprint, informe os valores secretos solicitados. Depois que os serviços forem
+criados, configure `VITE_API_URL` no serviço `sysfinan-frontend` com a URL pública da API
+(por exemplo, `https://sysfinan-api.onrender.com`) e `FRONTEND_URL` no serviço
+`sysfinan-api` com a URL pública do frontend. Um novo deploy do frontend é necessário para
+embutir a URL da API no build do Vite.
+
+O endpoint de saúde da API é `GET /health`.
+
 ---
 
 ## Como executar o back-end
@@ -149,8 +163,8 @@ SysFinan/
 ```bash
 cd backend
 python -m venv .venv
-.venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r ../requirements.txt
 uvicorn main:app --reload
 ```
 

@@ -22,11 +22,12 @@ TAMANHO_MAXIMO = 20 * 1024 * 1024  # limite de PDF enviado inline ao Gemini
 
 app = FastAPI(title="SysFinan — Extração de Nota Fiscal", version="0.1.0")
 
-# O Vite atende em IPv4 e IPv6, entao o navegador pode mandar Origin como
-# localhost ou 127.0.0.1 — os dois precisam ser liberados.
 ORIGENS_PERMITIDAS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    origem.strip()
+    for origem in os.getenv(
+        "FRONTEND_URL", "http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if origem.strip()
 ]
 
 app.add_middleware(
@@ -46,6 +47,11 @@ class NovaChaveApi(BaseModel):
 class StatusChaveApi(BaseModel):
     informada: bool
     mascara: str | None = None  # só o final da chave, para o usuário reconhecê-la
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 def status_chave() -> StatusChaveApi:
