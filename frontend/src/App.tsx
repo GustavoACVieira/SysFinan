@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
-import { extrairDados } from './api'
-import type { NotaFiscalExtraida } from './types'
+import { useCallback, useEffect, useState } from 'react'
+import { obterStatusChave, obterToken, sair, SessaoExpirada } from './api'
+import ChaveApi from './ChaveApi'
+import Extracao from './Extracao'
+import Login from './Login'
+import type { StatusChaveApi } from './types'
 
 type Tema = 'claro' | 'escuro'
 
@@ -12,126 +15,79 @@ function temaInicial(): Tema {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'escuro' : 'claro'
 }
 
-function formatarTamanho(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 export default function App() {
   const [tema, setTema] = useState<Tema>(temaInicial)
-  const [arquivo, setArquivo] = useState<File | null>(null)
-  const [dados, setDados] = useState<NotaFiscalExtraida | null>(null)
-  const [erro, setErro] = useState<string | null>(null)
-  const [carregando, setCarregando] = useState(false)
-  const [copiado, setCopiado] = useState(false)
+  const [logado, setLogado] = useState(() => obterToken() !== null)
 
   useEffect(() => {
     document.documentElement.dataset.tema = tema
     localStorage.setItem(CHAVE_TEMA, tema)
   }, [tema])
 
-  function selecionarArquivo(event: React.ChangeEvent<HTMLInputElement>) {
-    setArquivo(event.target.files?.[0] ?? null)
-    setDados(null)
-    setErro(null)
-  }
+  // Estável: o Inicio usa como dependência do efeito que consulta a chave.
+  const expirarSessao = useCallback(() => setLogado(false), [])
 
-  async function solicitarExtracao() {
-    if (!arquivo) return
-
-    setCarregando(true)
-    setErro(null)
-    setDados(null)
-
-    try {
-      setDados(await extrairDados(arquivo))
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro inesperado na extração')
-    } finally {
-      setCarregando(false)
-    }
-  }
-
-  async function copiarJson() {
-    if (!dados) return
-    await navigator.clipboard.writeText(JSON.stringify(dados, null, 2))
-    setCopiado(true)
-    setTimeout(() => setCopiado(false), 2000)
+  async function encerrarSessao() {
+    await sair()
+    setLogado(false)
   }
 
   return (
     <>
       <header className="barra">
         <span className="marca">SysFinan</span>
-        <button
-          type="button"
-          className="botao-tema"
-          onClick={() => setTema(tema === 'claro' ? 'escuro' : 'claro')}
-          aria-label={tema === 'claro' ? 'Ativar modo escuro' : 'Ativar modo claro'}
-          title={tema === 'claro' ? 'Modo escuro' : 'Modo claro'}
-        >
-          {tema === 'claro' ? <IconeLua /> : <IconeSol />}
-        </button>
-      </header>
-
-      <main className="pagina">
-        <h1>Extração de dados de nota fiscal</h1>
-        <p className="subtitulo">
-          Carregue o PDF da nota fiscal para extrair os dados de contas a pagar.
-        </p>
-
-        <section className="painel">
-          <h2>Nota fiscal</h2>
-
-          <div className="campo-arquivo">
-            <input
-              id="arquivo"
-              className="entrada-arquivo"
-              type="file"
-              accept="application/pdf"
-              onChange={selecionarArquivo}
-              disabled={carregando}
-            />
-            <label htmlFor="arquivo" className="botao-secundario">
-              {arquivo ? 'Trocar arquivo' : 'Escolher arquivo'}
-            </label>
-
-            {arquivo ? (
-              <span className="arquivo">
-                <span className="arquivo-nome">{arquivo.name}</span>
-                <span className="arquivo-tamanho">{formatarTamanho(arquivo.size)}</span>
-              </span>
-            ) : (
-              <span className="arquivo-vazio">Nenhum arquivo selecionado</span>
-            )}
-          </div>
-
+        <div className="barra-acoes">
+          {logado && (
+            <button type="button" className="botao-texto" onClick={encerrarSessao}>
+              Sair
+            </button>
+          )}
           <button
             type="button"
-            className="botao-primario"
-            onClick={solicitarExtracao}
-            disabled={!arquivo || carregando}
+            className="botao-tema"
+            onClick={() => setTema(tema === 'claro' ? 'escuro' : 'claro')}
+            aria-label={tema === 'claro' ? 'Ativar modo escuro' : 'Ativar modo claro'}
+            title={tema === 'claro' ? 'Modo escuro' : 'Modo claro'}
           >
-            {carregando ? 'Extraindo…' : 'Extrair dados'}
+            {tema === 'claro' ? <IconeLua /> : <IconeSol />}
           </button>
+        </div>
+      </header>
 
-          {erro && <p className="erro">{erro}</p>}
-        </section>
-
-        {dados && (
-          <section className="painel">
-            <div className="painel-cabecalho">
-              <h2>Dados extraídos</h2>
-              <button type="button" className="botao-secundario" onClick={copiarJson}>
-                {copiado ? 'Copiado' : 'Copiar JSON'}
-              </button>
-            </div>
-
-            <pre className="json">{JSON.stringify(dados, null, 2)}</pre>
-          </section>
-        )}
-      </main>
+      {logado ? (
+        <Inicio aoExpirarSessao={expirarSessao} />
+      ) : (
+        <Login aoEntrar={() => setLogado(true)} />
+      )}
     </>
+  )
+}
+
+function Inicio({ aoExpirarSessao }: { aoExpirarSessao: () => void }) {
+  const [status, setStatus] = useState<StatusChaveApi | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    obterStatusChave()
+      .then(setStatus)
+      .catch((e) => {
+        if (e instanceof SessaoExpirada) return aoExpirarSessao()
+        setErro(e instanceof Error ? e.message : 'Não foi possível consultar a chave da API')
+      })
+  }, [aoExpirarSessao])
+
+  return (
+    <main className="pagina">
+      <h1>Extração de dados de nota fiscal</h1>
+      <p className="subtitulo">
+        Carregue o PDF da nota fiscal para extrair os dados de contas a pagar.
+      </p>
+
+      {erro && <p className="erro erro-topo">{erro}</p>}
+
+      <ChaveApi status={status} aoAlterar={setStatus} aoExpirarSessao={aoExpirarSessao} />
+      <Extracao chaveInformada={status?.informada ?? false} aoExpirarSessao={aoExpirarSessao} />
+    </main>
   )
 }
 

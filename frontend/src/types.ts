@@ -27,3 +27,10 @@ export interface NotaFiscalExtraida {
   valorTotal: number | null
   tiposDespesa: string[]
 }
+
+/** Situação da chave da API do Gemini cadastrada no back-end. */
+export interface StatusChaveApi {
+  informada: boolean
+  /** Apenas o final da chave (ex.: "••••abcd"), nunca a chave inteira. */
+  mascara: string | null
+}

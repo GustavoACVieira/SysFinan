@@ -1,15 +1,28 @@
 """Agent1 — responsavel por ler o PDF da nota fiscal e devolver os dados estruturados."""
 
+import logging
 import os
 from pathlib import Path
 
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
 
 from models import NotaFiscalExtraida
 
-MODELO_PADRAO = "gemini-3.8-flash"
-TENTATIVAS = 3
+logger = logging.getLogger(__name__)
+
+# Cadeia do melhor Flash para o mais disponivel. Os modelos mais novos vivem
+# sobrecarregados (HTTP 503), entao caimos para o seguinte em vez de falhar.
+MODELOS_PADRAO = (
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+)
+# Poucas tentativas por modelo: quem da resiliencia aqui e a cadeia de fallback,
+# e repetir muito no mesmo modelo sobrecarregado so aumenta a espera do usuario.
+TENTATIVAS = 2
 
 # Subcategorias usadas apenas como contexto de classificacao no prompt.
 CATEGORIAS = {
@@ -84,15 +97,38 @@ class Agent1:
 
     def __init__(self, api_key: str | None = None, modelo: str | None = None):
         self._api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self._modelo = modelo or os.getenv("GEMINI_MODEL", MODELO_PADRAO)
+        self._modelos = self._montar_cadeia(modelo or os.getenv("GEMINI_MODEL"))
         self._client: genai.Client | None = None
+
+    @staticmethod
+    def _montar_cadeia(preferido: str | None) -> tuple[str, ...]:
+        """Modelo preferido na frente, seguido dos demais como reserva."""
+        if not preferido:
+            return MODELOS_PADRAO
+        # Aceita uma lista explicita separada por virgula em GEMINI_MODEL.
+        escolhidos = [m.strip() for m in preferido.split(",") if m.strip()]
+        reservas = [m for m in MODELOS_PADRAO if m not in escolhidos]
+        return tuple(escolhidos + reservas)
+
+    @property
+    def api_key_informada(self) -> bool:
+        return bool(self._api_key)
+
+    @property
+    def api_key(self) -> str | None:
+        return self._api_key
+
+    def definir_api_key(self, api_key: str | None) -> None:
+        """Troca a chave em tempo de execucao; o client e recriado na proxima chamada."""
+        self._api_key = api_key or None
+        self._client = None
 
     def _obter_client(self) -> genai.Client:
         """Cria o client sob demanda, para a API subir mesmo sem a chave configurada."""
         if self._client is None:
             if not self._api_key:
                 raise RuntimeError(
-                    "GEMINI_API_KEY não configurada. Informe a chave em backend/.env."
+                    "Chave da API do Gemini não informada. Cadastre-a na tela de configuração."
                 )
             self._client = genai.Client(
                 api_key=self._api_key,
@@ -111,26 +147,51 @@ class Agent1:
         """Lê o PDF da nota fiscal e devolve os dados já estruturados."""
         pdf = Path(caminho_arquivo).read_bytes()
 
-        resposta = self._obter_client().models.generate_content(
-            model=self._modelo,
-            contents=[
-                types.Part.from_bytes(data=pdf, mime_type="application/pdf"),
-                "Extraia os dados desta nota fiscal e classifique a despesa.",
-            ],
-            config=types.GenerateContentConfig(
-                system_instruction=self._instrucao(),
-                response_mime_type="application/json",
-                response_schema=NotaFiscalExtraida,
-                # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
-                # temperature baixa degrada o raciocinio e pode causar loops.
-            ),
+        conteudo = [
+            types.Part.from_bytes(data=pdf, mime_type="application/pdf"),
+            "Extraia os dados desta nota fiscal e classifique a despesa.",
+        ]
+        config = types.GenerateContentConfig(
+            system_instruction=self._instrucao(),
+            response_mime_type="application/json",
+            response_schema=NotaFiscalExtraida,
+            # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
+            # temperature baixa degrada o raciocinio e pode causar loops.
         )
+
+        resposta = self._gerar_com_fallback(conteudo, config)
 
         dados = resposta.parsed
         if not isinstance(dados, NotaFiscalExtraida):
             raise ValueError("O Gemini não devolveu um JSON no formato esperado.")
 
         return self._normalizar(dados)
+
+    def _gerar_com_fallback(self, conteudo: list, config: types.GenerateContentConfig):
+        """Percorre a cadeia de modelos ate um responder.
+
+        So troca de modelo em erro de servidor (5xx, tipicamente sobrecarga). Erros
+        de chave, cota ou requisicao invalida sobem direto: trocar de modelo nao
+        resolveria e so mascararia a causa real.
+        """
+        client = self._obter_client()
+        ultimo_erro: genai_errors.ServerError | None = None
+
+        for modelo in self._modelos:
+            try:
+                resposta = client.models.generate_content(
+                    model=modelo, contents=conteudo, config=config
+                )
+            except genai_errors.ServerError as erro:
+                logger.warning("Modelo %s indisponivel (%s); tentando o proximo.", modelo, erro.code)
+                ultimo_erro = erro
+                continue
+
+            if modelo != self._modelos[0]:
+                logger.info("Extracao feita com o modelo reserva %s.", modelo)
+            return resposta
+
+        raise ultimo_erro  # type: ignore[misc]
 
     @staticmethod
     def _normalizar(dados: NotaFiscalExtraida) -> NotaFiscalExtraida:

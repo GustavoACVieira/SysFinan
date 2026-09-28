@@ -39,7 +39,8 @@ A avaliação N2 é dividida em duas etapas:
 Processador de PDF que utiliza um **Agent** (Gemini) para extrair os dados de uma nota fiscal
 (CONTAS A PAGAR) e devolver o resultado em **JSON**.
 
-Fluxo: o usuário carrega o PDF da nota fiscal na interface web, aciona o botão
+Fluxo: o usuário entra com o login de administrador, informa a chave da API do Gemini
+(se ainda não estiver cadastrada), carrega o PDF da nota fiscal na interface web, aciona o botão
 **EXTRAIR DADOS**, o Agent processa o documento e o JSON é exibido na tela.
 
 ### Campos extraídos
@@ -119,8 +120,9 @@ compra de material hidráulico → `INFRAESTRUTURA E UTILIDADES`.
 ```
 SysFinan/
 ├── backend/                            # API e Agents (Python)
-│   ├── main.py                         # FastAPI: POST /extrair
+│   ├── main.py                         # FastAPI: login, chave da API e POST /extrair
 │   ├── models.py                       # Contrato do JSON (Pydantic)
+│   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
 │   ├── agents/
 │   │   └── agent1/
 │   │       ├── __init__.py
@@ -129,8 +131,11 @@ SysFinan/
 │   └── .env
 ├── frontend/                           # Interface web (TypeScript + React + Vite)
 │   ├── src/
-│   │   ├── App.tsx                     # Tela de upload do PDF e exibição do JSON
-│   │   ├── api.ts                      # Chamada ao endpoint de extração
+│   │   ├── App.tsx                     # Alterna entre login e a área logada
+│   │   ├── Login.tsx                   # Tela de login
+│   │   ├── ChaveApi.tsx                # Cadastro e situação da chave do Gemini
+│   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
+│   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
 │   │   └── types.ts                    # Contrato do JSON da nota fiscal
 │   └── package.json
 ├── README.md
@@ -146,7 +151,6 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
-# informe a GEMINI_API_KEY em backend/.env
 uvicorn main:app --reload
 ```
 
@@ -160,13 +164,23 @@ Variáveis de ambiente:
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
-| `GEMINI_API_KEY` | Chave da API do Gemini | — (obrigatória) |
-| `GEMINI_MODEL` | Modelo utilizado pelo Agent1 | `gemini-3.8-flash` |
+| `GEMINI_API_KEY` | Chave da API do Gemini (também pode ser cadastrada pela tela, que grava aqui) | — |
+| `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula; os demais Flash servem de reserva | `gemini-3.8-flash` → `3.7` → `3.6` → `3.5` |
+| `SYSFINAN_USUARIO` | Usuário do login | `admin` |
+| `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
 
-### Endpoint
+### Endpoints
+
+Todas as rotas, exceto `/login`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
+ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 
 | Método | Rota | Entrada | Saída |
 |--------|------|---------|-------|
+| `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
+| `POST` | `/logout` | — | `204` |
+| `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
+| `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (grava em `backend/.env`) |
+| `DELETE` | `/chave-api` | — | situação da chave |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | JSON no formato acima |
 
 O `main.py` apenas recebe o arquivo e delega ao agente, conforme a estrutura de Agents:
@@ -200,6 +214,11 @@ Variável de ambiente:
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
 | `VITE_API_URL` | URL base da API que expõe `POST /extrair` | `http://localhost:8000` |
+
+Ao abrir, o front exibe a tela de login (usuário `admin`, senha `cruzeiro`). Depois de entrar,
+o painel **Chave da API do Gemini** mostra se a chave está **Ativa** (com os 4 últimos
+caracteres) ou **Não informada**, e permite cadastrar, substituir ou remover a chave. O botão
+**EXTRAIR DADOS** só fica liberado com a chave informada.
 
 O front envia o PDF em `multipart/form-data` (campo `arquivo`) para `POST {VITE_API_URL}/extrair`
 e exibe na tela o JSON devolvido.
