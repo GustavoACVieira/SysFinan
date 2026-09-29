@@ -54,7 +54,7 @@ verificação**:
 | 1 | Identificação | `EsquemaIdentificacao` | Razão social e CNPJ do fornecedor, nome do faturado, número e data de emissão; CNPJ/CPF e data no formato certo |
 | 2 | Produtos | `EsquemaProdutos` | Ao menos um produto |
 | 3 | Financeiro | `EsquemaFinanceiro` | Valor total positivo, ao menos uma parcela, parcelas com valor e **soma das parcelas = valor total** |
-| 4 | Classificação | `EsquemaClassificacao` | Ao menos uma das 9 categorias (feita só com o texto já extraído, sem reenviar o PDF) |
+| 4 | Classificação | `EsquemaClassificacao` | Ao menos uma categoria ativa, ou uma nova válida (feita só com o texto já extraído, sem reenviar o PDF) |
 | 5 | Consolidação | `NotaFiscalExtraida` | Redundância: repete todas as verificações sobre a nota montada e revalida o JSON final contra o esquema completo |
 
 Redundância e verificação (`backend/agents/agent1/verificacao.py`):
@@ -115,6 +115,27 @@ compra de material hidráulico → `INFRAESTRUTURA E UTILIDADES`.
 | IMPOSTOS E TAXAS | ITR, IPTU, IPVA, INCRA-CCIR |
 | INVESTIMENTOS | Aquisição de máquinas e implementos; de veículos; de imóveis; infraestrutura rural |
 
+### Categorias criadas pelo agent
+
+Além das 9 categorias padrão (fixas), o agent pode **criar uma categoria nova** — como exceção,
+quando nenhuma categoria ativa representa a despesa. A partir daí ela vale para as próximas
+notas: entra na lista enviada ao Gemini e no prompt, com a descrição que o agent escreveu.
+
+- **Onde fica:** `backend/dados/categorias.json` (fora do git). Todo acesso passa por
+  `RepositorioCategorias` (`backend/categorias.py`); na migração para o MySQL, só ele muda.
+- **Só com a nota aprovada:** a categoria é salva quando a extração inteira conclui; uma extração
+  que falhou não deixa categoria para trás.
+- **Sem duplicatas:** nomes são comparados sem acento, pontuação ou plural — "Combustíveis",
+  "COMBUSTIVEL" e "combustível" são a mesma categoria, e a existente é reaproveitada.
+- **Por cautela:** se o agent já enquadrou a nota em alguma categoria existente, uma sugestão de
+  categoria nova é descartada (e registrada como aviso).
+- **Inativar/reativar:** na janela **Categorias** (cabeçalho), o admin inativa as criadas que não
+  quer ver em uso — seguindo a regra de que cadastros não se excluem. Uma categoria inativa sai
+  das opções do agent e **não pode ser recriada** por ele. As 9 padrão não podem ser inativadas.
+
+> No Render gratuito o disco é temporário: as categorias criadas somem a cada deploy ou
+> reinício. Isso se resolve com a migração prevista para o MySQL.
+
 ### Formato do JSON retornado
 
 ```json
@@ -165,6 +186,8 @@ SysFinan/
 │   ├── main.py                         # FastAPI: login, chave da API e POST /extrair
 │   ├── models.py                       # Esquemas Pydantic: etapas, nota completa e verificação
 │   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
+│   ├── categorias.py                   # Categorias padrão + criadas (RepositorioCategorias)
+│   ├── dados/categorias.json           # Categorias criadas pelo agent (gerado; fora do git)
 │   ├── agents/
 │   │   └── agent1/
 │   │       ├── __init__.py
@@ -184,6 +207,8 @@ SysFinan/
 │   │   ├── Login.tsx                   # Tela de login
 │   │   ├── Marca.tsx                   # Símbolo da marca em SVG (cores seguem o tema do app)
 │   │   ├── ChaveApi.tsx                # Janela de cadastro da chave do Gemini
+│   │   ├── Categorias.tsx              # Janela das categorias (inativar/reativar as criadas)
+│   │   ├── Janela.tsx                  # Janela modal reutilizável (<dialog>)
 │   │   ├── SaudeAgent.tsx              # Verificação de funcionamento do agent
 │   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
 │   │   ├── Etapas.tsx                  # Relatório das etapas da extração
@@ -288,6 +313,8 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
 | `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (grava em `backend/.env`) |
 | `DELETE` | `/chave-api` | — | situação da chave |
+| `GET` | `/categorias` | — | Lista de categorias (padrão e criadas, ativas e inativas) |
+| `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa uma criada) |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
 
 `dados` só vem preenchido quando todas as etapas são aprovadas; `etapas` traz, para cada uma,
@@ -305,8 +332,9 @@ resultado.dados                                    # NotaFiscalExtraida (JSON ac
 ```
 
 Cada etapa usa como `response_schema` o seu esquema Pydantic de `models.py` — o mesmo contrato
-declarado em `frontend/src/types.ts` — e a classificação da despesa é restrita às 9 categorias
-pela enumeração `CategoriaDespesa`.
+declarado em `frontend/src/types.ts`. Na classificação, o esquema é montado na hora com as
+categorias ativas como enumeração: o Gemini só consegue devolver nomes da lista, e a única
+saída para algo novo é o campo `novaCategoria`.
 
 ---
 

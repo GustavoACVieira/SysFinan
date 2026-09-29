@@ -6,6 +6,7 @@ import type { ResultadoExtracao } from './types'
 interface Props {
   chaveInformada: boolean
   aoInformarChave: () => void
+  aoVerCategorias: () => void
   aoExpirarSessao: () => void
 }
 
@@ -14,7 +15,12 @@ function formatarTamanho(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function Extracao({ chaveInformada, aoInformarChave, aoExpirarSessao }: Props) {
+export default function Extracao({
+  chaveInformada,
+  aoInformarChave,
+  aoVerCategorias,
+  aoExpirarSessao,
+}: Props) {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [resultado, setResultado] = useState<ResultadoExtracao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -124,6 +130,17 @@ export default function Extracao({ chaveInformada, aoInformarChave, aoExpirarSes
               A extração parou na etapa “{etapaReprovada.titulo}”: ela foi reprovada na
               verificação e as etapas seguintes não foram executadas.
             </p>
+          )}
+          {resultado.categoriaCriada && (
+            <div className="categoria-criada">
+              <p>
+                O agent criou a categoria <strong>{resultado.categoriaCriada.nome}</strong>:{' '}
+                {resultado.categoriaCriada.descricao}
+              </p>
+              <button type="button" className="botao-link" onClick={aoVerCategorias}>
+                Ver categorias
+              </button>
+            </div>
           )}
           <Etapas etapas={resultado.etapas} />
         </section>

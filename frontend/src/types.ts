@@ -51,11 +51,25 @@ export interface VerificacaoEtapa {
   avisos: string[]
 }
 
+/** Categoria de despesa: uma das 9 padrão ou criada pelo agent. */
+export interface Categoria {
+  nome: string
+  descricao: string
+  /** true para as 9 categorias fixas do sistema (não podem ser inativadas). */
+  padrao: boolean
+  ativa: boolean
+  criadaEm: string | null
+  /** Número da nota que levou o agent a criar a categoria. */
+  notaOrigem: string | null
+}
+
 /** Resposta do POST /extrair: `dados` só vem quando todas as etapas concluíram. */
 export interface ResultadoExtracao {
   concluida: boolean
   etapas: VerificacaoEtapa[]
   dados: NotaFiscalExtraida | null
+  /** Categoria que o agent criou nesta extração, se criou. */
+  categoriaCriada: Categoria | null
 }
 
 export interface StatusModelo {

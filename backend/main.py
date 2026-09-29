@@ -15,8 +15,9 @@ from pydantic import BaseModel
 CAMINHO_ENV = Path(__file__).with_name(".env")
 load_dotenv(CAMINHO_ENV)
 
+import categorias  # noqa: E402
 from agents.agent1.manipulacao_dados import Agent1, chave_recusada  # noqa: E402
-from models import ResultadoExtracao, SaudeAgent  # noqa: E402
+from models import Categoria, ResultadoExtracao, SaudeAgent, SituacaoCategoria  # noqa: E402
 from seguranca import Credenciais, Sessao, autenticar, encerrar, exigir_login  # noqa: E402
 
 TAMANHO_MAXIMO = 20 * 1024 * 1024  # limite de PDF enviado inline ao Gemini
@@ -106,6 +107,25 @@ def salvar_chave_api(nova: NovaChaveApi) -> StatusChaveApi:
 def remover_chave_api() -> StatusChaveApi:
     gravar_chave("")
     return status_chave()
+
+
+@app.get("/categorias", response_model=list[Categoria], dependencies=[Depends(exigir_login)])
+def listar_categorias() -> list[Categoria]:
+    """As 9 categorias padrão e as criadas pelo agent (ativas e inativas)."""
+    return categorias.repositorio.listar()
+
+
+@app.put(
+    "/categorias/situacao", response_model=Categoria, dependencies=[Depends(exigir_login)]
+)
+def alterar_situacao_categoria(situacao: SituacaoCategoria) -> Categoria:
+    """Inativa ou reativa uma categoria criada (cadastros não se excluem, se inativam)."""
+    try:
+        return categorias.repositorio.definir_ativa(situacao.nome, situacao.ativa)
+    except ValueError as erro:
+        raise HTTPException(status_code=400, detail=str(erro)) from erro
+    except KeyError as erro:
+        raise HTTPException(status_code=404, detail="Categoria não encontrada.") from erro
 
 
 @app.post(

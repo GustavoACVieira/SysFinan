@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 
 class CategoriaDespesa(str, Enum):
-    """Categorias possiveis de classificacao da despesa."""
+    """As 9 categorias padrao. O agent pode criar outras (ver categorias.py)."""
 
     INSUMOS_AGRICOLAS = "INSUMOS AGRÍCOLAS"
     MANUTENCAO_E_OPERACAO = "MANUTENÇÃO E OPERAÇÃO"
@@ -92,13 +92,29 @@ class EsquemaFinanceiro(BaseModel):
 
 
 class EsquemaClassificacao(BaseModel):
-    """Etapa 4 — em que tipo de despesa a nota se enquadra (interpretado, nao extraido)."""
+    """Etapa 4 — em que tipo de despesa a nota se enquadra (interpretado, nao extraido).
 
-    tiposDespesa: list[CategoriaDespesa] = Field(
+    No JSON final e uma lista de nomes. Para o Gemini, a etapa monta na hora um esquema
+    com as categorias ativas como enumeracao (ver etapas.esquema_classificacao), entao
+    ele nao consegue devolver um nome fora da lista.
+    """
+
+    tiposDespesa: list[str] = Field(
         description=(
             "Classificacao da despesa interpretada a partir dos produtos da nota. "
             "Nao e um campo extraido do documento. Deve conter ao menos uma categoria."
         )
+    )
+
+
+class NovaCategoria(BaseModel):
+    """Categoria proposta pelo agent quando nenhuma das existentes representa a despesa."""
+
+    nome: str = Field(
+        description="Nome curto em MAIUSCULAS, no estilo das existentes (ex.: SERVICOS OPERACIONAIS)"
+    )
+    descricao: str = Field(
+        description="O que entra nesta categoria, com exemplos de itens, em uma frase"
     )
 
 
@@ -138,12 +154,35 @@ class VerificacaoEtapa(BaseModel):
     )
 
 
+class Categoria(BaseModel):
+    """Categoria de despesa como o sistema a guarda (padrao ou criada pelo agent)."""
+
+    nome: str
+    descricao: str
+    padrao: bool = Field(description="true para as 9 categorias fixas do sistema")
+    ativa: bool = True
+    criadaEm: str | None = None
+    notaOrigem: str | None = Field(
+        default=None, description="Numero da nota que levou o agent a criar a categoria"
+    )
+
+
+class SituacaoCategoria(BaseModel):
+    """Entrada do PUT /categorias/situacao: inativar ou reativar uma categoria criada."""
+
+    nome: str
+    ativa: bool
+
+
 class ResultadoExtracao(BaseModel):
     """Resposta do POST /extrair: a nota (se todas as etapas concluiram) e o relatorio."""
 
     concluida: bool
     etapas: list[VerificacaoEtapa]
     dados: NotaFiscalExtraida | None = None
+    categoriaCriada: Categoria | None = Field(
+        default=None, description="Categoria que o agent criou nesta extracao, se criou"
+    )
 
 
 class StatusModelo(BaseModel):

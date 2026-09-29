@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { obterStatusChave, obterToken, sair, SessaoExpirada } from './api'
+import Categorias from './Categorias'
 import ChaveApi from './ChaveApi'
 import Extracao from './Extracao'
 import Login from './Login'
@@ -23,6 +24,7 @@ export default function App() {
   const [status, setStatus] = useState<StatusChaveApi | null>(null)
   const [erroChave, setErroChave] = useState<string | null>(null)
   const [janelaChave, setJanelaChave] = useState(false)
+  const [janelaCategorias, setJanelaCategorias] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.tema = tema
@@ -36,6 +38,7 @@ export default function App() {
     if (!logado) {
       setStatus(null)
       setJanelaChave(false)
+      setJanelaCategorias(false)
       return
     }
     setErroChave(null)
@@ -69,6 +72,9 @@ export default function App() {
         <div className="barra-acoes">
           {logado && (
             <>
+              <button type="button" className="botao-texto" onClick={() => setJanelaCategorias(true)}>
+                Categorias
+              </button>
               <BotaoChave status={status} aoClicar={() => setJanelaChave(true)} />
               <button type="button" className="botao-texto" onClick={encerrarSessao}>
                 Sair
@@ -100,6 +106,7 @@ export default function App() {
           <Extracao
             chaveInformada={chaveInformada}
             aoInformarChave={() => setJanelaChave(true)}
+            aoVerCategorias={() => setJanelaCategorias(true)}
             aoExpirarSessao={expirarSessao}
           />
 
@@ -108,6 +115,11 @@ export default function App() {
             aoFechar={() => setJanelaChave(false)}
             status={status}
             aoAlterar={setStatus}
+            aoExpirarSessao={expirarSessao}
+          />
+          <Categorias
+            aberta={janelaCategorias}
+            aoFechar={() => setJanelaCategorias(false)}
             aoExpirarSessao={expirarSessao}
           />
         </main>

@@ -368,7 +368,9 @@ h1 {
 
 .barra-acoes {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 4px;
 }
 
@@ -757,4 +759,99 @@ h1 {
 .botao-fechar:hover {
   background: var(--realce);
   color: var(--texto);
+}
+
+/* ---------- Categorias ---------- */
+
+.janela-larga {
+  width: min(640px, calc(100vw - 32px));
+}
+
+/* Lista longa (9 padrão + criadas): rola dentro da janela, não a página. */
+.janela-larga .janela-conteudo {
+  max-height: min(80vh, 720px);
+  overflow-y: auto;
+}
+
+.categorias-intro {
+  margin: 0 0 16px;
+}
+
+.categorias-secao {
+  margin: 18px 0 8px;
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.categorias-vazio {
+  margin: 0;
+}
+
+.categorias-lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+}
+
+.categorias-lista li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.categorias-lista li + li {
+  border-top: 1px solid var(--borda);
+}
+
+.categoria-corpo {
+  flex: 1;
+  min-width: 0;
+}
+
+.categoria-linha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.categoria-nome {
+  font-weight: 600;
+}
+
+.categoria-descricao {
+  margin: 2px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.85rem;
+}
+
+.categoria-inativa .categoria-nome,
+.categoria-inativa .categoria-descricao {
+  opacity: 0.6;
+}
+
+.categorias-padrao .categoria-nome {
+  font-size: 0.85rem;
+}
+
+.categoria-criada {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--acento-suave);
+}
+
+.categoria-criada p {
+  margin: 0;
 }

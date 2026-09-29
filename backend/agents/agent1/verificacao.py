@@ -12,8 +12,8 @@ contra regras que uma nota fiscal valida sempre respeita.
 import re
 from datetime import date
 
+from categorias import TAMANHO_NOME
 from models import (
-    EsquemaClassificacao,
     EsquemaFinanceiro,
     EsquemaIdentificacao,
     EsquemaProdutos,
@@ -169,15 +169,38 @@ def verificar_financeiro(dados: EsquemaFinanceiro, data_emissao: str | None) -> 
     return problemas, avisos
 
 
-def verificar_classificacao(dados: EsquemaClassificacao) -> Resultado:
-    if not dados.tiposDespesa:
-        return ["Nenhuma categoria de despesa foi atribuída."], []
+def verificar_classificacao(dados) -> Resultado:
+    """Recebe a classificacao normalizada da etapa ou, na consolidacao, a nota completa."""
+    problemas: list[str] = []
+    avisos: list[str] = list(getattr(dados, "observacoes", []))
+    inativa = getattr(dados, "categoriaInativa", None)
+    nova = getattr(dados, "novaCategoria", None)
+
+    if inativa:
+        problemas.append(
+            f"A categoria “{inativa}” foi inativada pelo administrador e não pode ser "
+            "recriada; use uma das categorias da lista."
+        )
+    elif not dados.tiposDespesa:
+        problemas.append("Nenhuma categoria de despesa foi atribuída.")
+
+    if nova:
+        minimo, maximo = TAMANHO_NOME
+        if not minimo <= len(nova.nome) <= maximo:
+            problemas.append(
+                f"O nome da nova categoria deve ter de {minimo} a {maximo} caracteres: “{nova.nome}”."
+            )
+        elif not nova.descricao:
+            problemas.append(f"A nova categoria “{nova.nome}” precisa de uma descrição.")
+        else:
+            avisos.append(f"Categoria nova proposta pelo agent: {nova.nome} — {nova.descricao}")
+
     if len(dados.tiposDespesa) > 2:
-        return [], [f"Nota classificada em {len(dados.tiposDespesa)} categorias; revise."]
-    return [], []
+        avisos.append(f"Nota classificada em {len(dados.tiposDespesa)} categorias; revise.")
+    return problemas, avisos
 
 
-def verificar_consolidacao(nota: NotaFiscalExtraida) -> Resultado:
+def verificar_consolidacao(nota: NotaFiscalExtraida, categorias_validas: set[str]) -> Resultado:
     """Redundancia: repete todas as verificacoes sobre a nota ja montada.
 
     Pega inconsistencias que so aparecem juntando as etapas (ex.: a normalizacao
@@ -192,6 +215,11 @@ def verificar_consolidacao(nota: NotaFiscalExtraida) -> Resultado:
         verificar_classificacao(nota),
     ):
         problemas += encontrados
+
+    # Redundancia com a enumeracao da etapa: nenhuma categoria fora das ativas (ou da nova).
+    for tipo in nota.tiposDespesa:
+        if tipo not in categorias_validas:
+            problemas.append(f"Categoria desconhecida ou inativa na nota: “{tipo}”.")
 
     if nota.quantidadeParcelas != len(nota.parcelas):
         problemas.append(

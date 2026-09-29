@@ -1,4 +1,4 @@
-import type { ResultadoExtracao, SaudeAgent, StatusChaveApi } from './types'
+import type { Categoria, ResultadoExtracao, SaudeAgent, StatusChaveApi } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -75,6 +75,25 @@ export async function salvarChave(chave: string): Promise<StatusChaveApi> {
 export async function removerChave(): Promise<StatusChaveApi> {
   const resposta = await requisitar('/chave-api', { method: 'DELETE' }, 'Falha ao remover a chave')
   return (await resposta.json()) as StatusChaveApi
+}
+
+export async function listarCategorias(): Promise<Categoria[]> {
+  const resposta = await requisitar('/categorias', { method: 'GET' }, 'Falha ao listar as categorias')
+  return (await resposta.json()) as Categoria[]
+}
+
+/** Inativa ou reativa uma categoria criada pelo agent. */
+export async function alterarSituacaoCategoria(nome: string, ativa: boolean): Promise<Categoria> {
+  const resposta = await requisitar(
+    '/categorias/situacao',
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, ativa }),
+    },
+    'Falha ao alterar a categoria',
+  )
+  return (await resposta.json()) as Categoria
 }
 
 /** Diagnóstico do Agent1: chave, modelos e uma geração real no Gemini. */

@@ -19,6 +19,7 @@ from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import BaseModel, ValidationError
 
+import categorias
 from models import (
     NotaFiscalExtraida,
     ResultadoExtracao,
@@ -144,20 +145,29 @@ class Agent1:
 
         verificacao, nota = self._consolidar(contexto)
         relatorio.append(verificacao)
-        concluida = verificacao.status is StatusEtapa.CONCLUIDA
-        return ResultadoExtracao(
-            concluida=concluida, etapas=relatorio, dados=nota if concluida else None
-        )
+        if verificacao.status is not StatusEtapa.CONCLUIDA:
+            return ResultadoExtracao(concluida=False, etapas=relatorio)
+
+        # A categoria nova so e salva com a nota inteira aprovada: uma extracao que
+        # falhou nao deixa categoria orfa para tras.
+        criada = None
+        if proposta := contexto.get("novaCategoria"):
+            criada = categorias.repositorio.criar(
+                proposta["nome"], proposta["descricao"], nota_origem=nota.numeroNotaFiscal
+            )
+            logger.info("Categoria criada pelo agent: %s", criada.nome)
+        return ResultadoExtracao(concluida=True, etapas=relatorio, dados=nota, categoriaCriada=criada)
 
     def _executar_etapa(
         self, etapa: Etapa, pdf: types.Part, contexto: Contexto
     ) -> VerificacaoEtapa:
         """Roda a etapa até ela ser aprovada na verificação ou acabarem as tentativas."""
         inicio = time.perf_counter()
+        esquema = etapa.esquema()
         config = types.GenerateContentConfig(
-            system_instruction=etapa.instrucao,
+            system_instruction=etapa.instrucao(),
             response_mime_type="application/json",
-            response_schema=etapa.esquema,
+            response_schema=esquema,
             thinking_config=types.ThinkingConfig(thinking_level=etapa.pensamento),
             # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
             # temperature baixa degrada o raciocinio e pode causar loops.
@@ -179,7 +189,7 @@ class Agent1:
 
             resposta, modelo = self._gerar_com_fallback(conteudo, config)
             dados = resposta.parsed
-            if not isinstance(dados, etapa.esquema):
+            if not isinstance(dados, esquema):
                 problemas, avisos = ["O modelo não devolveu um JSON no esquema da etapa."], []
                 logger.warning("Etapa %s, tentativa %d: resposta fora do esquema.", etapa.id, tentativa)
                 continue
@@ -215,9 +225,12 @@ class Agent1:
         """Monta a nota com o que as etapas aprovaram e verifica o conjunto."""
         inicio = time.perf_counter()
         nota: NotaFiscalExtraida | None = None
+        validas = {c.nome for c in categorias.repositorio.ativas()}
+        if proposta := contexto.get("novaCategoria"):
+            validas.add(proposta["nome"])
         try:
             nota = NotaFiscalExtraida.model_validate(contexto)
-            problemas, _ = verificar_consolidacao(nota)
+            problemas, _ = verificar_consolidacao(nota, validas)
         except ValidationError as erro:
             problemas = [f"JSON final fora do esquema: {e['loc']} — {e['msg']}" for e in erro.errors()]
 

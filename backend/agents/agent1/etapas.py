@@ -7,16 +7,18 @@ atual e aprovada pela verificacao (ver verificacao.py).
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, create_model
 
+import categorias
 from models import (
-    EsquemaClassificacao,
     EsquemaFinanceiro,
     EsquemaIdentificacao,
     EsquemaProdutos,
+    NovaCategoria,
 )
 
 from .verificacao import (
@@ -28,33 +30,6 @@ from .verificacao import (
     verificar_identificacao,
     verificar_produtos,
 )
-
-# Subcategorias usadas apenas como contexto de classificacao no prompt.
-CATEGORIAS = {
-    "INSUMOS AGRÍCOLAS": "sementes, fertilizantes, defensivos agrícolas, corretivos",
-    "MANUTENÇÃO E OPERAÇÃO": (
-        "combustíveis e lubrificantes; peças, parafusos e componentes mecânicos; "
-        "manutenção de máquinas e equipamentos; pneus, filtros, correias; "
-        "ferramentas e utensílios"
-    ),
-    "RECURSOS HUMANOS": "mão de obra temporária; salários e encargos",
-    "SERVIÇOS OPERACIONAIS": (
-        "frete e transporte; colheita terceirizada; secagem e armazenagem; "
-        "pulverização e aplicação"
-    ),
-    "INFRAESTRUTURA E UTILIDADES": (
-        "energia elétrica; arrendamento de terras; construções e reformas; "
-        "materiais de construção"
-    ),
-    "ADMINISTRATIVAS": (
-        "honorários contábeis, advocatícios e agronômicos; despesas bancárias e financeiras"
-    ),
-    "SEGUROS E PROTEÇÃO": "seguro agrícola; seguro de ativos (máquinas/veículos); seguro prestamista",
-    "IMPOSTOS E TAXAS": "ITR, IPTU, IPVA, INCRA-CCIR",
-    "INVESTIMENTOS": (
-        "aquisição de máquinas e implementos; de veículos; de imóveis; infraestrutura rural"
-    ),
-}
 
 BASE = """Você é um agente especialista em notas fiscais eletrônicas brasileiras (DANFE).
 A nota fiscal em anexo representa um registro de CONTAS A PAGAR.
@@ -97,13 +72,21 @@ de propriedades rurais. Você recebe os dados já extraídos de uma nota fiscal 
 CONTAS A PAGAR e deve classificar a despesa.
 
 tiposDespesa NÃO é um campo extraído do documento: interprete-o a partir das descrições
-dos produtos (e, como apoio, do ramo do fornecedor), escolhendo entre as categorias:
+dos produtos (e, como apoio, do ramo do fornecedor), escolhendo entre as categorias
+cadastradas:
 
 {categorias}
 
 - Considere a finalidade da compra em uma propriedade rural, não apenas o nome do item.
 - Devolva a categoria que melhor representa a nota como um todo (normalmente uma só).
   Inclua mais de uma apenas quando a nota misturar itens de categorias claramente distintas.
+
+Criação de categoria (exceção, não regra):
+- Use SEMPRE uma categoria da lista quando alguma representar a despesa, mesmo que de forma
+  aproximada. As categorias são propositalmente amplas.
+- Somente se NENHUMA categoria da lista servir, deixe tiposDespesa vazio e preencha
+  novaCategoria com um nome curto em MAIÚSCULAS, no estilo das existentes, e uma descrição
+  do que entra nela. Em qualquer outro caso, novaCategoria deve ser null.
 
 Exemplos:
 - Compra de óleo diesel -> MANUTENÇÃO E OPERAÇÃO
@@ -113,9 +96,49 @@ Exemplos:
 - Sementes de soja, adubo, herbicida, calcário -> INSUMOS AGRÍCOLAS
 - Trator, plantadeira ou caminhão novos -> INVESTIMENTOS
 - Frete de grãos -> SERVIÇOS OPERACIONAIS
-""".format(
-    categorias="\n".join(f"- {nome}: {exemplos}" for nome, exemplos in CATEGORIAS.items())
-)
+"""
+
+
+def instrucao_classificacao() -> str:
+    """Instrucao com as categorias ativas no momento (padrao + criadas pelo agent)."""
+    ativas = categorias.repositorio.ativas()
+    return INSTRUCAO_CLASSIFICACAO.format(
+        categorias="\n".join(f"- {c.nome}: {c.descricao}" for c in ativas)
+    )
+
+
+def esquema_classificacao() -> type[BaseModel]:
+    """Esquema enviado ao Gemini, montado na hora com as categorias ativas.
+
+    As categorias entram como enumeracao: o Gemini so consegue devolver nomes da lista.
+    A saida para algo novo e o campo novaCategoria, tratado em _normalizar_classificacao.
+    """
+    nomes = [c.nome for c in categorias.repositorio.ativas()]
+    Opcoes = Enum("CategoriaAtiva", {f"C{i}": nome for i, nome in enumerate(nomes)}, type=str)
+    return create_model(
+        "EsquemaClassificacao",
+        tiposDespesa=(
+            list[Opcoes],
+            Field(description="Categorias da lista que representam a despesa da nota"),
+        ),
+        novaCategoria=(
+            NovaCategoria | None,
+            Field(
+                default=None,
+                description="Somente se NENHUMA categoria da lista servir; caso contrario, null",
+            ),
+        ),
+    )
+
+
+class ClassificacaoVerificada(BaseModel):
+    """Classificacao depois da normalizacao: o que a verificacao da etapa recebe."""
+
+    tiposDespesa: list[str]
+    novaCategoria: NovaCategoria | None = None
+    # Apenas para a verificacao; nao seguem para a nota.
+    categoriaInativa: str | None = Field(default=None, exclude=True)
+    observacoes: list[str] = Field(default_factory=list, exclude=True)
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +166,39 @@ def _normalizar_financeiro(dados: EsquemaFinanceiro) -> EsquemaFinanceiro:
     return dados
 
 
-def _normalizar_classificacao(dados: EsquemaClassificacao) -> EsquemaClassificacao:
-    dados.tiposDespesa = list(dict.fromkeys(dados.tiposDespesa))
-    return dados
+def _normalizar_classificacao(dados: Any) -> ClassificacaoVerificada:
+    """Converte a resposta do Gemini e resolve a categoria nova, se ele propos uma.
+
+    - equivalente a uma existente e ativa ("Combustiveis" x "COMBUSTIVEL"): usa a existente;
+    - equivalente a uma inativada pelo admin: marca, e a verificacao reprova a etapa;
+    - nota ja classificada em categorias existentes: descarta a proposta, por cautela.
+    """
+    tipos = [t.value if isinstance(t, Enum) else str(t) for t in dados.tiposDespesa]
+    resultado = ClassificacaoVerificada(tiposDespesa=list(dict.fromkeys(tipos)))
+    proposta = dados.novaCategoria
+    if proposta is None or not proposta.nome.strip():
+        return resultado
+
+    nome = categorias.formatar_nome(proposta.nome)
+    if resultado.tiposDespesa:
+        resultado.observacoes.append(
+            f"O agent sugeriu a categoria “{nome}”, mas a nota já se enquadra em categorias "
+            "existentes; nada foi criado."
+        )
+        return resultado
+
+    existente = categorias.repositorio.buscar(nome)
+    if existente is None:
+        resultado.novaCategoria = NovaCategoria(nome=nome, descricao=proposta.descricao.strip())
+        resultado.tiposDespesa.append(nome)
+    elif existente.ativa:
+        resultado.observacoes.append(
+            f"A categoria sugerida “{nome}” já existe como “{existente.nome}”; foi usada a existente."
+        )
+        resultado.tiposDespesa.append(existente.nome)
+    else:
+        resultado.categoriaInativa = existente.nome
+    return resultado
 
 
 # ---------------------------------------------------------------------------
@@ -159,8 +212,10 @@ Contexto = dict[str, Any]  # campos ja aprovados nas etapas anteriores
 class Etapa:
     id: str
     titulo: str
-    esquema: type[BaseModel]
-    instrucao: str
+    # Funcoes, e nao valores fixos: a classificacao monta os dois na hora, com as
+    # categorias ativas naquele momento.
+    esquema: Callable[[], type[BaseModel]]
+    instrucao: Callable[[], str]
     usa_pdf: bool  # a classificacao trabalha so com o texto ja extraido
     pedido: Callable[[Contexto], str]
     verificar: Callable[[Any, Contexto], Resultado]
@@ -182,8 +237,8 @@ ETAPAS: tuple[Etapa, ...] = (
     Etapa(
         id="identificacao",
         titulo="Identificação (fornecedor, faturado, número e emissão)",
-        esquema=EsquemaIdentificacao,
-        instrucao=INSTRUCAO_IDENTIFICACAO,
+        esquema=lambda: EsquemaIdentificacao,
+        instrucao=lambda: INSTRUCAO_IDENTIFICACAO,
         usa_pdf=True,
         pedido=lambda _: "Extraia a identificação desta nota fiscal.",
         verificar=lambda dados, _: verificar_identificacao(dados),
@@ -192,8 +247,8 @@ ETAPAS: tuple[Etapa, ...] = (
     Etapa(
         id="produtos",
         titulo="Produtos",
-        esquema=EsquemaProdutos,
-        instrucao=INSTRUCAO_PRODUTOS,
+        esquema=lambda: EsquemaProdutos,
+        instrucao=lambda: INSTRUCAO_PRODUTOS,
         usa_pdf=True,
         pedido=lambda _: "Extraia a descrição dos produtos desta nota fiscal.",
         verificar=lambda dados, _: verificar_produtos(dados),
@@ -202,8 +257,8 @@ ETAPAS: tuple[Etapa, ...] = (
     Etapa(
         id="financeiro",
         titulo="Financeiro (parcelas e valor total)",
-        esquema=EsquemaFinanceiro,
-        instrucao=INSTRUCAO_FINANCEIRO,
+        esquema=lambda: EsquemaFinanceiro,
+        instrucao=lambda: INSTRUCAO_FINANCEIRO,
         usa_pdf=True,
         pedido=lambda _: "Extraia o valor total e as parcelas desta nota fiscal.",
         # A data de emissao aprovada na etapa 1 serve para conferir os vencimentos.
@@ -213,8 +268,8 @@ ETAPAS: tuple[Etapa, ...] = (
     Etapa(
         id="classificacao",
         titulo="Classificação da despesa",
-        esquema=EsquemaClassificacao,
-        instrucao=INSTRUCAO_CLASSIFICACAO,
+        esquema=esquema_classificacao,
+        instrucao=instrucao_classificacao,
         usa_pdf=False,
         pedido=_pedido_classificacao,
         verificar=lambda dados, _: verificar_classificacao(dados),
