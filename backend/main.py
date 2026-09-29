@@ -4,6 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv, set_key
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -150,6 +151,10 @@ async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
     except genai_errors.ServerError as erro:
         raise HTTPException(
             status_code=503, detail="Gemini indisponível no momento. Tente novamente."
+        ) from erro
+    except httpx.TimeoutException as erro:
+        raise HTTPException(
+            status_code=504, detail="Nenhum modelo do Gemini respondeu a tempo. Tente novamente."
         ) from erro
     except Exception as erro:
         raise HTTPException(

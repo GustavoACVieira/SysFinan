@@ -65,8 +65,22 @@ Redundância e verificação (`backend/agents/agent1/verificacao.py`):
 - Pontos que não impedem a etapa (ex.: dígitos verificadores de CNPJ/CPF que não conferem,
   comuns em notas de teste) viram **avisos** no relatório.
 - Cada chamada percorre a cadeia de modelos Flash (3.8 → 3.7 → 3.6 → 3.5): se o preferido
-  estiver sobrecarregado (HTTP 5xx) ou sem cota (HTTP 429 — a cota do Gemini é separada por
-  modelo), usa o próximo. Só um modelo atende cada chamada.
+  estiver sobrecarregado (HTTP 5xx), sem cota (HTTP 429 — a cota do Gemini é separada por
+  modelo) ou não responder em 90 s, usa o próximo. Só um modelo atende cada chamada.
+
+Desempenho:
+
+- Raciocínio (`thinking_level`) `MEDIUM` em todas as etapas: o padrão do Gemini 3 (`HIGH`)
+  deixava a extração lenta, e `LOW` pensava pouco para a classificação.
+- Quando um modelo reserva atende, as chamadas seguintes começam por ele durante 5 minutos,
+  em vez de esbarrar de novo no preferido que acabou de falhar. O diagnóstico de
+  funcionamento ignora essa fixação, para detectar quando o preferido volta.
+- Não há repetição no mesmo modelo: um modelo sobrecarregado demora para devolver o 503, e
+  repetir nele só dobraria a espera — a cadeia de reservas é quem dá a resiliência.
+
+> **Cota do plano gratuito:** 20 requisições por dia **por modelo**. Cada extração faz ao
+> menos 4 (uma por etapa com IA), então a cadeia de 4 modelos comporta cerca de 20 extrações
+> por dia. Para uso contínuo, ative o faturamento no Google AI Studio.
 
 `NotaFiscalExtraida` é a composição dos quatro esquemas das etapas, então o JSON final
 continua exatamente no formato abaixo.

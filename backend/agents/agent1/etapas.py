@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from google.genai import types
 from pydantic import BaseModel
 
 from models import (
@@ -164,6 +165,9 @@ class Etapa:
     pedido: Callable[[Contexto], str]
     verificar: Callable[[Any, Contexto], Resultado]
     normalizar: Callable[[Any], Any] = field(default=lambda dados: dados)
+    # Quanto o Gemini 3 "pensa" antes de responder. MEDIUM equilibra cuidado e tempo: o
+    # padrao dele (HIGH) deixava a extracao lenta e LOW pensava pouco para a classificacao.
+    pensamento: types.ThinkingLevel = types.ThinkingLevel.MEDIUM
 
 
 def _pedido_classificacao(contexto: Contexto) -> str:

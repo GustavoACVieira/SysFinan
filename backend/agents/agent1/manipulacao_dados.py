@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -41,9 +42,16 @@ MODELOS_PADRAO = (
     "gemini-3.6-flash",
     "gemini-3.5-flash",
 )
-# Poucas tentativas HTTP por modelo: quem da resiliencia aqui e a cadeia de fallback,
-# e repetir muito no mesmo modelo sobrecarregado so aumenta a espera do usuario.
-TENTATIVAS_HTTP = 2
+# Uma tentativa HTTP por modelo: quem da resiliencia aqui e a cadeia de fallback.
+# Um modelo sobrecarregado demora para devolver o 503, e repetir nele so dobra a espera.
+TENTATIVAS_HTTP = 1
+# Limite por chamada: um modelo travado passa a vez ao proximo em vez de segurar a etapa.
+# Folgado de proposito: com raciocinio MEDIUM/HIGH uma resposta legitima pode demorar, e
+# corta-la no meio obrigaria outro modelo a recomecar do zero.
+TIMEOUT_MS = 90_000
+# Depois que um reserva atende, as chamadas seguintes comecam por ele durante este tempo,
+# em vez de esbarrar de novo no preferido que acabou de falhar.
+FIXAR_RESERVA_POR_S = 300
 # Quantas vezes uma etapa pode ser executada ate ser aprovada na verificacao.
 TENTATIVAS_ETAPA = 2
 # Erros repetidos no mesmo modelo. O 429 (cota) fica de fora: a cota do Gemini e
@@ -67,6 +75,8 @@ class Agent1:
         self._api_key = api_key or os.getenv("GEMINI_API_KEY")
         self._modelos = self._montar_cadeia(modelo or os.getenv("GEMINI_MODEL"))
         self._client: genai.Client | None = None
+        self._reserva_fixada: str | None = None
+        self._reserva_ate = 0.0
 
     @staticmethod
     def _montar_cadeia(preferido: str | None) -> tuple[str, ...]:
@@ -102,6 +112,7 @@ class Agent1:
                 api_key=self._api_key,
                 # Repete a chamada em erros transitórios do Gemini (429, 5xx).
                 http_options=types.HttpOptions(
+                    timeout=TIMEOUT_MS,
                     retry_options=types.HttpRetryOptions(
                         attempts=TENTATIVAS_HTTP, http_status_codes=STATUS_REPETIVEIS
                     )
@@ -147,6 +158,7 @@ class Agent1:
             system_instruction=etapa.instrucao,
             response_mime_type="application/json",
             response_schema=etapa.esquema,
+            thinking_config=types.ThinkingConfig(thinking_level=etapa.pensamento),
             # Gemini 3 e otimizado para os valores padrao de amostragem: forcar
             # temperature baixa degrada o raciocinio e pode causar loops.
         )
@@ -225,20 +237,31 @@ class Agent1:
     def _nao_executada(id_etapa: str, titulo: str) -> VerificacaoEtapa:
         return VerificacaoEtapa(etapa=id_etapa, titulo=titulo, status=StatusEtapa.NAO_EXECUTADA)
 
+    def _ordem_modelos(self, fixar_reserva: bool) -> tuple[str, ...]:
+        """Cadeia a percorrer: comeca pelo reserva fixado, se houver e ainda valer."""
+        reserva = self._reserva_fixada
+        if not fixar_reserva or reserva is None or time.monotonic() > self._reserva_ate:
+            return self._modelos
+        inicio = self._modelos.index(reserva)
+        return self._modelos[inicio:] + self._modelos[:inicio]
+
     def _gerar_com_fallback(
-        self, conteudo: list, config: types.GenerateContentConfig
+        self,
+        conteudo: list,
+        config: types.GenerateContentConfig,
+        fixar_reserva: bool = True,
     ) -> tuple[types.GenerateContentResponse, str]:
         """Percorre a cadeia de modelos ate um responder; devolve a resposta e o modelo.
 
-        Troca de modelo em erro de servidor (5xx, tipicamente sobrecarga) e em cota
-        esgotada (429), porque cada modelo tem a sua cota. Erros de chave ou de
+        Troca de modelo em erro de servidor (5xx, tipicamente sobrecarga), em cota
+        esgotada (429, cada modelo tem a sua) e em timeout. Erros de chave ou de
         requisicao invalida sobem direto: trocar de modelo nao resolveria e so
         mascararia a causa real.
         """
         client = self._obter_client()
-        ultimo_erro: genai_errors.APIError | None = None
+        ultimo_erro: Exception | None = None
 
-        for modelo in self._modelos:
+        for modelo in self._ordem_modelos(fixar_reserva):
             try:
                 resposta = client.models.generate_content(
                     model=modelo, contents=conteudo, config=config
@@ -249,9 +272,17 @@ class Agent1:
                 logger.warning("Modelo %s indisponivel (%s); tentando o proximo.", modelo, erro.code)
                 ultimo_erro = erro
                 continue
+            except httpx.TimeoutException as erro:
+                logger.warning("Modelo %s nao respondeu a tempo; tentando o proximo.", modelo)
+                ultimo_erro = erro
+                continue
 
-            if modelo != self._modelos[0]:
-                logger.info("Chamada atendida pelo modelo reserva %s.", modelo)
+            if modelo == self._modelos[0]:
+                self._reserva_fixada = None
+            elif fixar_reserva:
+                logger.info("Chamada atendida pelo modelo reserva %s; fixando-o.", modelo)
+                self._reserva_fixada = modelo
+                self._reserva_ate = time.monotonic() + FIXAR_RESERVA_POR_S
             return resposta, modelo
 
         raise ultimo_erro  # type: ignore[misc]
@@ -295,6 +326,12 @@ class Agent1:
                         modelo=modelo, disponivel=False, latenciaMs=_ms(inicio), erro=_resumo(erro)
                     )
                 )
+            except httpx.TimeoutException:
+                modelos.append(
+                    StatusModelo(
+                        modelo=modelo, disponivel=False, latenciaMs=_ms(inicio), erro="Sem resposta a tempo"
+                    )
+                )
 
         teste = self._testar_geracao()
         preferido_ok = bool(modelos) and modelos[0].disponivel and teste.modelo == self._modelos[0]
@@ -329,11 +366,20 @@ class Agent1:
         """Mesmo caminho das etapas (cadeia de modelos + JSON com esquema), em miniatura."""
         inicio = time.perf_counter()
         config = types.GenerateContentConfig(
-            response_mime_type="application/json", response_schema=_Ping
+            response_mime_type="application/json",
+            response_schema=_Ping,
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
         )
         try:
+            # Sem reserva fixada: o diagnostico precisa ver se o preferido ja voltou.
             resposta, modelo = self._gerar_com_fallback(
-                ['Teste de funcionamento. Responda exatamente {"ok": true}.'], config
+                ['Teste de funcionamento. Responda exatamente {"ok": true}.'],
+                config,
+                fixar_reserva=False,
+            )
+        except httpx.TimeoutException:
+            return TesteGeracao(
+                sucesso=False, latenciaMs=_ms(inicio), erro="Nenhum modelo respondeu a tempo."
             )
         except genai_errors.APIError as erro:
             return TesteGeracao(
