@@ -160,6 +160,7 @@ class TesteGeracao(BaseModel):
     modelo: str | None = None
     latenciaMs: int | None = None
     erro: str | None = None
+    cotaEsgotada: bool = False
 
 
 class SaudeAgent(BaseModel):

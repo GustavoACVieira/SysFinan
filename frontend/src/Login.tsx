@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { entrar } from './api'
+import Marca from './Marca'
 
 interface Props {
   aoEntrar: () => void
@@ -27,10 +28,19 @@ export default function Login({ aoEntrar }: Props) {
 
   return (
     <main className="pagina pagina-login">
-      <h1>Entrar</h1>
-      <p className="subtitulo">Acesse com o usuário administrador do SysFinan.</p>
+      <div className="login-marca">
+        <Marca tamanho={84} />
+        <h1 className="login-nome">
+          <span className="marca-sys">SYS</span>
+          <span className="marca-finan">FINAN</span>
+        </h1>
+        <p className="login-slogan">Sistema de Controle Financeiro</p>
+      </div>
 
       <form className="painel" onSubmit={enviar}>
+        <h2>Entrar</h2>
+        <p className="subtitulo login-instrucao">Acesse com o usuário administrador.</p>
+
         <label className="campo">
           <span className="campo-rotulo">Usuário</span>
           <input

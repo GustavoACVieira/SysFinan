@@ -46,6 +46,10 @@ MODELOS_PADRAO = (
 TENTATIVAS_HTTP = 2
 # Quantas vezes uma etapa pode ser executada ate ser aprovada na verificacao.
 TENTATIVAS_ETAPA = 2
+# Erros repetidos no mesmo modelo. O 429 (cota) fica de fora: a cota do Gemini e
+# separada por modelo, entao em vez de insistir no esgotado passamos ao proximo.
+STATUS_REPETIVEIS = [408, 500, 502, 503, 504]
+COTA_ESGOTADA = 429
 
 
 def _ms(inicio: float) -> int:
@@ -98,7 +102,9 @@ class Agent1:
                 api_key=self._api_key,
                 # Repete a chamada em erros transitórios do Gemini (429, 5xx).
                 http_options=types.HttpOptions(
-                    retry_options=types.HttpRetryOptions(attempts=TENTATIVAS_HTTP)
+                    retry_options=types.HttpRetryOptions(
+                        attempts=TENTATIVAS_HTTP, http_status_codes=STATUS_REPETIVEIS
+                    )
                 ),
             )
         return self._client
@@ -224,19 +230,22 @@ class Agent1:
     ) -> tuple[types.GenerateContentResponse, str]:
         """Percorre a cadeia de modelos ate um responder; devolve a resposta e o modelo.
 
-        So troca de modelo em erro de servidor (5xx, tipicamente sobrecarga). Erros
-        de chave, cota ou requisicao invalida sobem direto: trocar de modelo nao
-        resolveria e so mascararia a causa real.
+        Troca de modelo em erro de servidor (5xx, tipicamente sobrecarga) e em cota
+        esgotada (429), porque cada modelo tem a sua cota. Erros de chave ou de
+        requisicao invalida sobem direto: trocar de modelo nao resolveria e so
+        mascararia a causa real.
         """
         client = self._obter_client()
-        ultimo_erro: genai_errors.ServerError | None = None
+        ultimo_erro: genai_errors.APIError | None = None
 
         for modelo in self._modelos:
             try:
                 resposta = client.models.generate_content(
                     model=modelo, contents=conteudo, config=config
                 )
-            except genai_errors.ServerError as erro:
+            except genai_errors.APIError as erro:
+                if not isinstance(erro, genai_errors.ServerError) and erro.code != COTA_ESGOTADA:
+                    raise
                 logger.warning("Modelo %s indisponivel (%s); tentando o proximo.", modelo, erro.code)
                 ultimo_erro = erro
                 continue
@@ -290,7 +299,13 @@ class Agent1:
         teste = self._testar_geracao()
         preferido_ok = bool(modelos) and modelos[0].disponivel and teste.modelo == self._modelos[0]
 
-        if not teste.sucesso:
+        if not teste.sucesso and teste.cotaEsgotada:
+            status = "inoperante"
+            mensagem = (
+                "A cota da chave acabou em todos os modelos. Aguarde a renovação "
+                "(por minuto e por dia no plano gratuito) ou use uma chave com faturamento."
+            )
+        elif not teste.sucesso:
             status, mensagem = "inoperante", "O Gemini não conseguiu gerar uma resposta estruturada."
         elif preferido_ok and all(m.disponivel for m in modelos):
             status, mensagem = "operacional", "Agent funcionando com o modelo preferido."
@@ -321,7 +336,12 @@ class Agent1:
                 ['Teste de funcionamento. Responda exatamente {"ok": true}.'], config
             )
         except genai_errors.APIError as erro:
-            return TesteGeracao(sucesso=False, latenciaMs=_ms(inicio), erro=_resumo(erro))
+            return TesteGeracao(
+                sucesso=False,
+                latenciaMs=_ms(inicio),
+                erro=_resumo(erro),
+                cotaEsgotada=erro.code == COTA_ESGOTADA,
+            )
 
         sucesso = isinstance(resposta.parsed, _Ping) and resposta.parsed.ok
         return TesteGeracao(
@@ -338,4 +358,6 @@ def chave_recusada(erro: genai_errors.APIError) -> bool:
 
 
 def _resumo(erro: genai_errors.APIError) -> str:
+    if erro.code == COTA_ESGOTADA:
+        return "HTTP 429: cota da chave esgotada"
     return f"HTTP {erro.code}: {(erro.message or erro.status or 'erro desconhecido')[:160]}"

@@ -19,6 +19,9 @@
   --alerta-fundo: #fdf5e6;
   --codigo-fundo: #fafbfc;
   --sombra: 0 1px 2px rgba(20, 24, 31, 0.05), 0 1px 3px rgba(20, 24, 31, 0.04);
+  --marca-azul: #0b4aa8;
+  --marca-verde: #239b48;
+  --marca-doc: #0b3a86;
 }
 
 :root[data-tema='escuro'] {
@@ -42,6 +45,9 @@
   --alerta-fundo: #2c2415;
   --codigo-fundo: #16181c;
   --sombra: none;
+  --marca-azul: #5b8def;
+  --marca-verde: #4cc26f;
+  --marca-doc: #8fb2f5;
 }
 
 * {
@@ -68,9 +74,69 @@ body {
   padding: 18px 20px 0;
 }
 
+/* ---------- Marca ---------- */
+
+/* Cores do desenho da marca (Marca.tsx), ligadas aos tokens do tema. */
+.mk-a { fill: var(--marca-azul); }
+.mk-as { stroke: var(--marca-azul); }
+.mk-v { fill: var(--marca-verde); }
+.mk-vs { stroke: var(--marca-verde); }
+.mk-ds { stroke: var(--marca-doc); }
+.mk-e0 { stop-color: var(--marca-doc); }
+.mk-e1 { stop-color: var(--marca-verde); }
+
+.marca-simbolo {
+  display: block;
+  flex: none;
+}
+
 .marca {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marca-nome {
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.marca-sys {
+  color: var(--marca-doc);
+}
+
+.marca-finan {
+  color: var(--marca-verde);
+}
+
+.login-marca {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.login-nome {
+  margin: 12px 0 0;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
   letter-spacing: -0.01em;
+}
+
+.login-slogan {
+  margin: 8px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.login-instrucao {
+  margin: -8px 0 16px;
 }
 
 .botao-tema {
@@ -179,6 +245,9 @@ h1 {
 .entrada-arquivo:focus-visible + .botao-secundario,
 .botao-tema:focus-visible,
 .botao-texto:focus-visible,
+.botao-chave:focus-visible,
+.botao-fechar:focus-visible,
+.botao-link:focus-visible,
 .botao-primario:focus-visible,
 .botao-secundario:focus-visible {
   outline: 2px solid var(--acento);
@@ -293,7 +362,7 @@ h1 {
 
 .pagina-login {
   max-width: 400px;
-  padding-top: 12vh;
+  padding-top: 6vh;
 }
 
 .campo {
@@ -555,4 +624,98 @@ h1 {
 
 .etapa-avisos {
   color: var(--alerta);
+}
+
+/* ---------- Botao e janela da chave da API ---------- */
+
+.botao-chave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--borda-forte);
+  border-radius: 999px;
+  background: var(--superficie);
+  color: var(--texto-suave);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.botao-chave:hover {
+  background: var(--realce);
+}
+
+.botao-chave-ativa .selo-ponto {
+  color: var(--sucesso);
+}
+
+.botao-chave-inativa {
+  border-color: var(--erro);
+  color: var(--erro);
+}
+
+.botao-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--acento);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.janela {
+  width: min(520px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--borda);
+  border-radius: 14px;
+  background: var(--superficie);
+  color: var(--texto);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+.janela::backdrop {
+  background: rgba(10, 12, 16, 0.45);
+}
+
+.janela-conteudo {
+  padding: 20px;
+}
+
+.janela h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.janela-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  color: var(--texto-suave);
+}
+
+.botao-fechar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--texto-suave);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.botao-fechar:hover {
+  background: var(--realce);
+  color: var(--texto);
 }

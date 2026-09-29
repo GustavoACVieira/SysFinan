@@ -70,6 +70,7 @@ export interface TesteGeracao {
   modelo: string | null
   latenciaMs: number | null
   erro: string | null
+  cotaEsgotada: boolean
 }
 
 /** Diagnóstico de funcionamento do Agent1 (GET /saude/agent). */

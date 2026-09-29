@@ -64,8 +64,9 @@ Redundância e verificação (`backend/agents/agent1/verificacao.py`):
   ficam como *não executadas*.
 - Pontos que não impedem a etapa (ex.: dígitos verificadores de CNPJ/CPF que não conferem,
   comuns em notas de teste) viram **avisos** no relatório.
-- Cada chamada percorre a cadeia de modelos Flash: se o preferido estiver sobrecarregado
-  (HTTP 5xx), usa o próximo.
+- Cada chamada percorre a cadeia de modelos Flash (3.8 → 3.7 → 3.6 → 3.5): se o preferido
+  estiver sobrecarregado (HTTP 5xx) ou sem cota (HTTP 429 — a cota do Gemini é separada por
+  modelo), usa o próximo. Só um modelo atende cada chamada.
 
 `NotaFiscalExtraida` é a composição dos quatro esquemas das etapas, então o JSON final
 continua exatamente no formato abaixo.
@@ -158,16 +159,25 @@ SysFinan/
 │   │       └── verificacao.py          # Regras que aprovam/reprovam cada etapa
 │   └── .env
 ├── frontend/                           # Interface web (TypeScript + React + Vite)
+│   ├── public/                         # Servidos na raiz do site, sem passar pelo build
+│   │   ├── favicon.svg                 # Favicon principal (acompanha o tema claro/escuro)
+│   │   ├── favicon.ico                 # Reserva para navegadores antigos (16/32/48 px)
+│   │   ├── apple-touch-icon.png        # Ícone ao salvar na tela inicial do iPhone (180 px)
+│   │   ├── icon-192.png, icon-512.png  # Ícones do app instalado (Android/desktop)
+│   │   └── site.webmanifest            # Nome e ícones do app instalado
 │   ├── src/
 │   │   ├── App.tsx                     # Alterna entre login e a área logada
 │   │   ├── Login.tsx                   # Tela de login
-│   │   ├── ChaveApi.tsx                # Cadastro e situação da chave do Gemini
+│   │   ├── Marca.tsx                   # Símbolo da marca em SVG (cores seguem o tema do app)
+│   │   ├── ChaveApi.tsx                # Janela de cadastro da chave do Gemini
 │   │   ├── SaudeAgent.tsx              # Verificação de funcionamento do agent
 │   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
 │   │   ├── Etapas.tsx                  # Relatório das etapas da extração
 │   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
 │   │   └── types.ts                    # Contrato do JSON da nota fiscal
 │   └── package.json
+├── docs/
+│   └── marca/                          # Arquivos originais da marca (logo e ícone), para referência
 ├── requirements.txt                    # Dependências do back-end (na raiz, para o Render)
 ├── README.md
 └── .gitignore
@@ -304,8 +314,9 @@ Variável de ambiente:
 | `VITE_API_URL` | URL base da API que expõe `POST /extrair` | `http://localhost:8000` |
 
 Ao abrir, o front exibe a tela de login (usuário `admin`, senha `cruzeiro`). Depois de entrar,
-o painel **Chave da API do Gemini** mostra se a chave está **Ativa** (com os 4 últimos
-caracteres) ou **Não informada**, e permite cadastrar, substituir ou remover a chave. O botão
+o botão **Chave API** no cabeçalho mostra a situação da chave (bolinha verde = **Ativa**,
+vermelha = **Não informada**). Ao clicar, abre uma janela com os 4 últimos caracteres da chave,
+onde é possível cadastrar, substituir ou remover a chave. O botão
 **EXTRAIR DADOS** só fica liberado com a chave informada.
 
 O painel **Funcionamento do agent** roda o diagnóstico de `GET /saude/agent` sob demanda e mostra

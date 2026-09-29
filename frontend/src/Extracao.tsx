@@ -5,6 +5,7 @@ import type { ResultadoExtracao } from './types'
 
 interface Props {
   chaveInformada: boolean
+  aoInformarChave: () => void
   aoExpirarSessao: () => void
 }
 
@@ -13,7 +14,7 @@ function formatarTamanho(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
+export default function Extracao({ chaveInformada, aoInformarChave, aoExpirarSessao }: Props) {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [resultado, setResultado] = useState<ResultadoExtracao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -97,7 +98,13 @@ export default function Extracao({ chaveInformada, aoExpirarSessao }: Props) {
           </p>
         )}
         {!chaveInformada && (
-          <p className="dica">Informe a chave da API do Gemini acima para liberar a extração.</p>
+          <p className="dica">
+            Para liberar a extração,{' '}
+            <button type="button" className="botao-link" onClick={aoInformarChave}>
+              informe a chave da API do Gemini
+            </button>
+            .
+          </p>
         )}
         {erro && <p className="erro">{erro}</p>}
       </section>

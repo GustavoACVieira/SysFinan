@@ -140,7 +140,10 @@ async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
         if chave_recusada(erro):
             detalhe = "Chave do Gemini inválida ou sem permissão. Verifique a chave cadastrada."
         elif erro.code == 429:
-            detalhe = "Limite de uso da API do Gemini atingido. Tente novamente em instantes."
+            detalhe = (
+                "Cota da API do Gemini esgotada em todos os modelos. Aguarde a renovação "
+                "(por minuto e por dia no plano gratuito) ou use uma chave com faturamento."
+            )
         else:
             detalhe = f"Requisição recusada pelo Gemini: {erro.message}"
         raise HTTPException(status_code=502, detail=detalhe) from erro
