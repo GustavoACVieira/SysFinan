@@ -1,53 +1,72 @@
+/*
+ * Paleta base: #65964B verde · #363621 oliva · #E37334 laranja · #2D9687 turquesa · #E4C12B amarelo.
+ * Os tons puros vão na marca e em destaques; texto e botões usam tons derivados (mais escuros
+ * no claro, mais claros no escuro) para passar no contraste mínimo de 4,5:1 (WCAG AA).
+ * Papéis: laranja = cor principal (ações, links, foco e a seta que sobe na marca — o tom de
+ * "finanças") · oliva = texto e superfícies · turquesa = secundária · verde = sucesso ·
+ * amarelo = aviso · carmim (derivado do laranja, puxado para o vermelho) = erro, bem distante
+ * do laranja para "clique aqui" não se confundir com "deu errado".
+ */
 :root {
   color-scheme: light;
-  --fundo: #f7f8fa;
-  --superficie: #ffffff;
-  --borda: #e7e9ee;
-  --borda-forte: #d6dae1;
-  --texto: #14181f;
-  --texto-suave: #6b7480;
-  --acento: #1f5fd0;
-  --acento-hover: #1a51b3;
+  --fundo: #f5f4ec;
+  --superficie: #fffefa;
+  --borda: #e4e2d3;
+  --borda-forte: #cfccb8;
+  --texto: #363621;
+  --texto-suave: #6a6950;
+  --acento: #b4501a;
+  --acento-hover: #9a4415;
   --acento-texto: #ffffff;
-  --acento-suave: #eef3fd;
-  --realce: #f4f6f9;
-  --erro: #c0392f;
-  --erro-fundo: #fdf3f2;
-  --sucesso: #1e7a46;
-  --sucesso-fundo: #edf7f0;
-  --alerta: #9a6100;
-  --alerta-fundo: #fdf5e6;
-  --codigo-fundo: #fafbfc;
-  --sombra: 0 1px 2px rgba(20, 24, 31, 0.05), 0 1px 3px rgba(20, 24, 31, 0.04);
-  --marca-azul: #0b4aa8;
-  --marca-verde: #239b48;
-  --marca-doc: #0b3a86;
+  --acento-suave: #fcebdd;
+  --destaque: #d4622a;
+  --secundaria: #1f7a6e;
+  --secundaria-suave: #e3f2ef;
+  --realce: #efeee3;
+  --erro: #b0243a;
+  --erro-fundo: #fbe6ea;
+  --sucesso: #4a7337;
+  --sucesso-fundo: #ebf3e5;
+  --alerta: #7d6400;
+  --alerta-fundo: #fbf3d0;
+  --codigo-fundo: #faf9f3;
+  --sombra: 0 1px 2px rgba(54, 54, 33, 0.06), 0 1px 3px rgba(54, 54, 33, 0.05);
+  --sombra-janela: 0 12px 40px rgba(54, 54, 33, 0.2);
+  --fundo-janela: rgba(54, 54, 33, 0.45);
+  --marca-seta: #d4622a;
+  --marca-verde: #65964b;
+  --marca-doc: #363621;
 }
 
 :root[data-tema='escuro'] {
   color-scheme: dark;
-  --fundo: #14161a;
-  --superficie: #1b1e23;
-  --borda: #2a2e35;
-  --borda-forte: #3a3f48;
-  --texto: #e6e9ee;
-  --texto-suave: #949dab;
-  --acento: #5b8def;
-  --acento-hover: #729cf2;
-  --acento-texto: #0f1114;
-  --acento-suave: #1e2735;
-  --realce: #22262c;
-  --erro: #f08a80;
-  --erro-fundo: #2a1d1c;
-  --sucesso: #6fcf97;
-  --sucesso-fundo: #1b2a21;
-  --alerta: #e8b45a;
-  --alerta-fundo: #2c2415;
-  --codigo-fundo: #16181c;
+  --fundo: #1b1b11;
+  --superficie: #24241a;
+  --borda: #36362a;
+  --borda-forte: #4a4a38;
+  --texto: #f2f0e3;
+  --texto-suave: #b0ae96;
+  --acento: #ec8a50;
+  --acento-hover: #f19f6c;
+  --acento-texto: #1b1b11;
+  --acento-suave: #3a2a1b;
+  --destaque: #ec8a50;
+  --secundaria: #3fb3a3;
+  --secundaria-suave: #1d3430;
+  --realce: #2e2e21;
+  --erro: #f27a8e;
+  --erro-fundo: #3b1c22;
+  --sucesso: #95c979;
+  --sucesso-fundo: #243320;
+  --alerta: #e4c12b;
+  --alerta-fundo: #352f14;
+  --codigo-fundo: #1f1f15;
   --sombra: none;
-  --marca-azul: #5b8def;
-  --marca-verde: #4cc26f;
-  --marca-doc: #8fb2f5;
+  --sombra-janela: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --fundo-janela: rgba(10, 10, 5, 0.6);
+  --marca-seta: #ec8a50;
+  --marca-verde: #8cc26e;
+  --marca-doc: #f2f0e3;
 }
 
 * {
@@ -77,8 +96,8 @@ body {
 /* ---------- Marca ---------- */
 
 /* Cores do desenho da marca (Marca.tsx), ligadas aos tokens do tema. */
-.mk-a { fill: var(--marca-azul); }
-.mk-as { stroke: var(--marca-azul); }
+.mk-a { fill: var(--marca-seta); }
+.mk-as { stroke: var(--marca-seta); }
 .mk-v { fill: var(--marca-verde); }
 .mk-vs { stroke: var(--marca-verde); }
 .mk-ds { stroke: var(--marca-doc); }
@@ -107,7 +126,27 @@ body {
 }
 
 .marca-finan {
-  color: var(--marca-verde);
+  color: var(--acento);
+}
+
+/* No login o nome é grande (texto grande pede só 3:1), então cabe o laranja mais vivo. */
+.login-nome .marca-finan {
+  color: var(--destaque);
+}
+
+/* Filete laranja sob o título da página e no topo do card de login. */
+.titulo-pagina::after {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 3px;
+  margin-top: 10px;
+  border-radius: 2px;
+  background: var(--destaque);
+}
+
+.pagina-login .painel {
+  border-top: 3px solid var(--destaque);
 }
 
 .login-marca {
@@ -266,7 +305,7 @@ h1 {
   min-width: 0;
   padding: 5px 12px;
   border-radius: 999px;
-  background: var(--acento-suave);
+  background: var(--secundaria-suave);
   color: var(--texto);
 }
 
@@ -674,11 +713,11 @@ h1 {
   border-radius: 14px;
   background: var(--superficie);
   color: var(--texto);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--sombra-janela);
 }
 
 .janela::backdrop {
-  background: rgba(10, 12, 16, 0.45);
+  background: var(--fundo-janela);
 }
 
 .janela-conteudo {

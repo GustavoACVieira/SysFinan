@@ -89,7 +89,7 @@ export default function App() {
 
       {logado ? (
         <main className="pagina">
-          <h1>Extração de dados de nota fiscal</h1>
+          <h1 className="titulo-pagina">Extração de dados de nota fiscal</h1>
           <p className="subtitulo">
             Carregue o PDF da nota fiscal para extrair os dados de contas a pagar.
           </p>
