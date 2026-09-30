@@ -19,6 +19,7 @@ import categorias  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
     Agent1,
     ChaveInvalida,
+    DocumentoInvalido,
     VerificacaoIndisponivel,
     chave_recusada,
 )
@@ -147,6 +148,9 @@ async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
     conteudo = await arquivo.read()
     if len(conteudo) > TAMANHO_MAXIMO:
         raise HTTPException(status_code=413, detail="O PDF deve ter no máximo 20 MB.")
+    # O content_type vem do navegador; os primeiros bytes dizem se e mesmo um PDF.
+    if not conteudo.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="O arquivo não é um PDF válido.")
 
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temporario:
         temporario.write(conteudo)
@@ -155,6 +159,8 @@ async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
     try:
         # A chamada ao Gemini é bloqueante: roda fora do event loop.
         return await run_in_threadpool(agent1.extrair_dados, caminho)
+    except DocumentoInvalido as erro:
+        raise HTTPException(status_code=422, detail=str(erro)) from erro
     except RuntimeError as erro:
         raise HTTPException(status_code=500, detail=str(erro)) from erro
     except genai_errors.ClientError as erro:

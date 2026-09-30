@@ -64,7 +64,7 @@ Redundância e verificação (`backend/agents/agent1/verificacao.py`):
   ficam como *não executadas*.
 - Pontos que não impedem a etapa (ex.: dígitos verificadores de CNPJ/CPF que não conferem,
   comuns em notas de teste) viram **avisos** no relatório.
-- Cada chamada percorre a cadeia de modelos Flash (3.8 → 3.7 → 3.6 → 3.5): se o preferido
+- Cada chamada percorre a cadeia de modelos (3.5 Flash-Lite → 3.1 Flash-Lite → 3.5 Flash): se o preferido
   estiver sobrecarregado (HTTP 5xx), sem cota (HTTP 429 — a cota do Gemini é separada por
   modelo) ou não responder em 90 s, usa o próximo. Só um modelo atende cada chamada.
 
@@ -80,6 +80,16 @@ Desempenho:
 > **Cota do plano gratuito:** 20 requisições por dia **por modelo**. Cada extração faz ao
 > menos 4 (uma por etapa com IA), então a cadeia de 4 modelos comporta cerca de 20 extrações
 > por dia. Para uso contínuo, ative o faturamento no Google AI Studio.
+
+Documento que não é nota fiscal:
+
+- Antes de chamar o Gemini, o texto embutido do PDF (via `pypdf`) é conferido em busca de
+  termos que toda nota traz ("DANFE", "NOTA FISCAL", "CHAVE DE ACESSO"...). Sem eles, a
+  extração para na hora, sem gastar cota.
+- PDF escaneado (sem texto) segue para a etapa de identificação, que também pergunta ao Gemini
+  se o documento é uma nota fiscal (campo `ehNotaFiscal`, fora do JSON final).
+- Nos dois casos o agent levanta `DocumentoInvalido` e a API responde `422` com a mensagem
+  "O arquivo enviado não é uma nota fiscal (DANFE)". Arquivo que nem é PDF recebe `400`.
 
 `NotaFiscalExtraida` é a composição dos quatro esquemas das etapas, então o JSON final
 continua exatamente no formato abaixo.
@@ -290,7 +300,7 @@ Variáveis de ambiente:
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
-| `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula; os demais Flash servem de reserva | `gemini-3.8-flash` → `3.7` → `3.6` → `3.5` |
+| `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula, na frente da cadeia padrão. Deixe vazio para usar só a cadeia padrão | `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-3.5-flash` |
 | `SYSFINAN_USUARIO` | Usuário do login | `admin` |
 | `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
 | `FRONTEND_URL` | URLs do front liberadas no CORS, separadas por vírgula (no Render, a URL pública do front) | `http://localhost:5173,http://127.0.0.1:5173` |
@@ -306,7 +316,7 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
 | `POST` | `/logout` | — | `204` |
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
-| `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (só em memória; não é salva) |
+| `PUT` | `/chave-api` | JSON `{ "chave" }` | Confere a chave no Google (sem gastar cota) e só então a ativa, em memória. `400` se o Google recusar, `503` se não der para verificar |
 | `DELETE` | `/chave-api` | — | situação da chave |
 | `GET` | `/categorias` | — | Lista de categorias (padrão e criadas, ativas e inativas) |
 | `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa uma criada) |

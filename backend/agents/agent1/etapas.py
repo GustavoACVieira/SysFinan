@@ -37,6 +37,9 @@ devolva null no campo correspondente.
 
 INSTRUCAO_IDENTIFICACAO = BASE + """
 Etapa: IDENTIFICAÇÃO da nota.
+- Primeiro, confira se o documento é uma nota fiscal brasileira (DANFE, NF-e, NFC-e ou
+  NFS-e). Se não for (contrato, boleto, apostila, orçamento, foto qualquer etc.), devolva
+  ehNotaFiscal = false e todos os demais campos null.
 - FORNECEDOR é o EMITENTE da nota (bloco "IDENTIFICAÇÃO DO EMITENTE"): razão social,
   nome fantasia (se houver) e CNPJ.
 - FATURADO é o DESTINATÁRIO da nota (bloco "DESTINATÁRIO/REMETENTE"): nome e CPF.
@@ -134,6 +137,22 @@ class ClassificacaoVerificada(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class EsquemaIdentificacaoGemini(EsquemaIdentificacao):
+    ehNotaFiscal: bool = Field(
+        exclude=True,
+        description="true se o documento e uma nota fiscal brasileira (DANFE, NF-e, NFC-e, NFS-e)",
+    )
+
+
+MENSAGEM_NAO_E_NOTA = (
+    "O arquivo enviado não é uma nota fiscal (DANFE). Envie o PDF de uma nota fiscal."
+)
+
+
+def _validar_documento(dados: EsquemaIdentificacaoGemini) -> str | None:
+    return None if dados.ehNotaFiscal else MENSAGEM_NAO_E_NOTA
+
+
 def _normalizar_identificacao(dados: EsquemaIdentificacao) -> EsquemaIdentificacao:
     dados.fornecedor.cnpj = formatar_cnpj(dados.fornecedor.cnpj)
     dados.faturado.cpf = formatar_cpf(dados.faturado.cpf)
@@ -201,7 +220,9 @@ class Etapa:
     pedido: Callable[[Contexto], str]
     verificar: Callable[[Any, Contexto], Resultado]
     normalizar: Callable[[Any], Any] = field(default=lambda dados: dados)
-    pensamento: types.ThinkingLevel = types.ThinkingLevel.MEDIUM
+    # Motivo para interromper a extracao sem nova tentativa (ex.: nao e uma nota fiscal).
+    validar_documento: Callable[[Any], str | None] | None = None
+    pensamento: types.ThinkingLevel = types.ThinkingLevel.LOW
 
 
 def _pedido_classificacao(contexto: Contexto) -> str:
@@ -216,12 +237,13 @@ ETAPAS: tuple[Etapa, ...] = (
     Etapa(
         id="identificacao",
         titulo="Identificação (fornecedor, faturado, número e emissão)",
-        esquema=lambda: EsquemaIdentificacao,
+        esquema=lambda: EsquemaIdentificacaoGemini,
         instrucao=lambda: INSTRUCAO_IDENTIFICACAO,
         usa_pdf=True,
         pedido=lambda _: "Extraia a identificação desta nota fiscal.",
         verificar=lambda dados, _: verificar_identificacao(dados),
         normalizar=_normalizar_identificacao,
+        validar_documento=_validar_documento,
     ),
     Etapa(
         id="produtos",

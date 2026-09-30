@@ -5,9 +5,11 @@ quando a atual e aprovada pela verificacao; no fim, a consolidacao verifica a
 nota completa.
 """
 
+import io
 import logging
 import os
 import time
+import unicodedata
 from pathlib import Path
 
 import httpx
@@ -15,22 +17,26 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 from pydantic import ValidationError
+from pypdf import PdfReader
 
 import categorias
 from models import NotaFiscalExtraida, ResultadoExtracao, StatusEtapa, VerificacaoEtapa
 
-from .etapas import ETAPAS, ID_CONSOLIDACAO, TITULO_CONSOLIDACAO, Contexto, Etapa
+from .etapas import (
+    ETAPAS,
+    ID_CONSOLIDACAO,
+    MENSAGEM_NAO_E_NOTA,
+    TITULO_CONSOLIDACAO,
+    Contexto,
+    Etapa,
+)
 from .verificacao import verificar_consolidacao
 
 logger = logging.getLogger(__name__)
 
 # Do preferido para os reservas; cai para o proximo quando um esta sobrecarregado.
-MODELOS_PADRAO = (
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-)
+# Os Flash-Lite respondem bem mais rapido; o 3.5-flash fica como ultimo recurso.
+MODELOS_PADRAO = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash")
 TENTATIVAS_HTTP = 1
 TIMEOUT_MS = 90_000
 # Depois que um reserva atende, as chamadas seguintes comecam por ele durante este tempo.
@@ -50,8 +56,34 @@ class VerificacaoIndisponivel(Exception):
     """Nao foi possivel falar com o Google para conferir a chave."""
 
 
+class DocumentoInvalido(Exception):
+    """O PDF enviado nao e uma nota fiscal."""
+
+
+# Termos que toda DANFE / nota fiscal traz impressos (comparados sem acento).
+MARCADORES_NOTA = ("DANFE", "NOTA FISCAL", "NF-E", "NFS-E", "NFC-E", "CHAVE DE ACESSO")
+TEXTO_MINIMO = 40
+
+
 def _ms(inicio: float) -> int:
     return round((time.perf_counter() - inicio) * 1000)
+
+
+def parece_nota_fiscal(conteudo: bytes) -> bool | None:
+    """Confere o texto embutido das 2 primeiras paginas, sem chamar o Gemini.
+
+    Devolve None quando o PDF nao tem texto (escaneado) ou nao pode ser lido:
+    nesse caso quem decide e a etapa de identificacao.
+    """
+    try:
+        paginas = PdfReader(io.BytesIO(conteudo)).pages[:2]
+        texto = " ".join(pagina.extract_text() or "" for pagina in paginas)
+    except Exception:
+        return None
+    if len(texto.strip()) < TEXTO_MINIMO:
+        return None
+    normalizado = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode().upper()
+    return any(marcador in normalizado for marcador in MARCADORES_NOTA)
 
 
 class Agent1:
@@ -136,9 +168,10 @@ class Agent1:
 
     def extrair_dados(self, caminho_arquivo: str | Path) -> ResultadoExtracao:
         """Lê o PDF da nota fiscal e devolve os dados estruturados com o relatório das etapas."""
-        pdf = types.Part.from_bytes(
-            data=Path(caminho_arquivo).read_bytes(), mime_type="application/pdf"
-        )
+        conteudo = Path(caminho_arquivo).read_bytes()
+        if parece_nota_fiscal(conteudo) is False:
+            raise DocumentoInvalido(MENSAGEM_NAO_E_NOTA)
+        pdf = types.Part.from_bytes(data=conteudo, mime_type="application/pdf")
         contexto: Contexto = {}
         relatorio: list[VerificacaoEtapa] = []
 
@@ -197,6 +230,8 @@ class Agent1:
                 problemas, avisos = ["O modelo não devolveu um JSON no esquema da etapa."], []
                 logger.warning("Etapa %s, tentativa %d: resposta fora do esquema.", etapa.id, tentativa)
                 continue
+            if etapa.validar_documento and (motivo := etapa.validar_documento(dados)):
+                raise DocumentoInvalido(motivo)
 
             dados = etapa.normalizar(dados)
             problemas, avisos = etapa.verificar(dados, contexto)
