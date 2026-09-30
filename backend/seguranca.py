@@ -1,8 +1,4 @@
-"""Login do administrador e sessoes da API.
-
-Ha um unico usuario (admin). As sessoes ficam em memoria: reiniciar o servidor
-derruba todas e o front volta para a tela de login.
-"""
+"""Login do administrador e sessoes da API (em memoria)."""
 
 import os
 import secrets
@@ -16,7 +12,7 @@ USUARIO_PADRAO = "admin"
 SENHA_PADRAO = "cruzeiro"
 DURACAO_SESSAO = 8 * 60 * 60  # segundos
 
-_sessoes: dict[str, float] = {}  # token -> instante de expiracao
+_sessoes: dict[str, float] = {}  # token -> expiracao
 _bearer = HTTPBearer(auto_error=False)
 
 
@@ -30,11 +26,9 @@ class Sessao(BaseModel):
 
 
 def autenticar(credenciais: Credenciais) -> Sessao:
-    """Confere usuario e senha e abre uma sessao nova."""
     usuario = os.getenv("SYSFINAN_USUARIO", USUARIO_PADRAO)
     senha = os.getenv("SYSFINAN_SENHA", SENHA_PADRAO)
 
-    # compare_digest evita vazar, pelo tempo de resposta, quantos caracteres batem.
     usuario_ok = secrets.compare_digest(credenciais.usuario.encode(), usuario.encode())
     senha_ok = secrets.compare_digest(credenciais.senha.encode(), senha.encode())
     if not (usuario_ok and senha_ok):
@@ -52,7 +46,6 @@ def encerrar(token: str) -> None:
 def exigir_login(
     credenciais: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> str:
-    """Dependencia das rotas protegidas: devolve o token da sessao valida."""
     token = credenciais.credentials if credenciais else None
     expira = _sessoes.get(token) if token else None
 

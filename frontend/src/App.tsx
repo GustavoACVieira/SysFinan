@@ -5,7 +5,6 @@ import ChaveApi from './ChaveApi'
 import Extracao from './Extracao'
 import Login from './Login'
 import Marca from './Marca'
-import SaudeAgent from './SaudeAgent'
 import type { StatusChaveApi } from './types'
 
 type Tema = 'claro' | 'escuro'
@@ -31,7 +30,6 @@ export default function App() {
     localStorage.setItem(CHAVE_TEMA, tema)
   }, [tema])
 
-  // Estável: é dependência do efeito que consulta a chave.
   const expirarSessao = useCallback(() => setLogado(false), [])
 
   useEffect(() => {
@@ -60,7 +58,6 @@ export default function App() {
   return (
     <>
       <header className="barra">
-        {/* No login a marca já aparece grande no centro; aqui só depois de entrar. */}
         {logado ? (
           <span className="marca">
             <Marca tamanho={28} />
@@ -102,7 +99,6 @@ export default function App() {
 
           {erroChave && <p className="erro erro-topo">{erroChave}</p>}
 
-          <SaudeAgent chaveInformada={chaveInformada} aoExpirarSessao={expirarSessao} />
           <Extracao
             chaveInformada={chaveInformada}
             aoInformarChave={() => setJanelaChave(true)}
@@ -130,7 +126,6 @@ export default function App() {
   )
 }
 
-/** "SysFinan" nas cores da marca. */
 function NomeMarca() {
   return (
     <span className="marca-nome">
@@ -140,7 +135,6 @@ function NomeMarca() {
   )
 }
 
-/** Botão do cabeçalho que mostra a situação da chave e abre a janela para informá-la. */
 function BotaoChave({ status, aoClicar }: { status: StatusChaveApi | null; aoClicar: () => void }) {
   const situacao = !status ? 'verificando' : status.informada ? 'ativa' : 'inativa'
   const descricao = !status

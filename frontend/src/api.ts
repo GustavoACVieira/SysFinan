@@ -1,4 +1,4 @@
-import type { Categoria, ResultadoExtracao, SaudeAgent, StatusChaveApi } from './types'
+import type { Categoria, ResultadoExtracao, StatusChaveApi } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -16,7 +16,6 @@ async function mensagemDeErro(resposta: Response, padrao: string): Promise<strin
   return typeof corpo?.detail === 'string' ? corpo.detail : `${padrao} (HTTP ${resposta.status})`
 }
 
-/** Chamada autenticada: anexa o token e trata sessão expirada. */
 async function requisitar(caminho: string, init: RequestInit, falha: string): Promise<Response> {
   const headers = new Headers(init.headers)
   const token = obterToken()
@@ -48,7 +47,7 @@ export async function sair(): Promise<void> {
   try {
     await requisitar('/logout', { method: 'POST' }, 'Falha ao sair')
   } catch {
-    // Sair precisa funcionar mesmo com o back-end fora do ar ou a sessão já expirada.
+    // Sai mesmo com o back-end fora do ar.
   } finally {
     localStorage.removeItem(CHAVE_TOKEN)
   }
@@ -82,7 +81,6 @@ export async function listarCategorias(): Promise<Categoria[]> {
   return (await resposta.json()) as Categoria[]
 }
 
-/** Inativa ou reativa uma categoria criada pelo agent. */
 export async function alterarSituacaoCategoria(nome: string, ativa: boolean): Promise<Categoria> {
   const resposta = await requisitar(
     '/categorias/situacao',
@@ -96,13 +94,7 @@ export async function alterarSituacaoCategoria(nome: string, ativa: boolean): Pr
   return (await resposta.json()) as Categoria
 }
 
-/** Diagnóstico do Agent1: chave, modelos e uma geração real no Gemini. */
-export async function verificarAgent(): Promise<SaudeAgent> {
-  const resposta = await requisitar('/saude/agent', { method: 'GET' }, 'Falha ao verificar o agent')
-  return (await resposta.json()) as SaudeAgent
-}
-
-/** Envia o PDF da nota fiscal para o Agent e devolve os dados com o relatório das etapas. */
+/** Envia o PDF da nota fiscal para o Agent e devolve os dados extraídos. */
 export async function extrairDados(arquivo: File): Promise<ResultadoExtracao> {
   const formData = new FormData()
   formData.append('arquivo', arquivo)

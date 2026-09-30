@@ -1,8 +1,4 @@
-"""Etapas do Agent1: cada uma tem seu esquema Pydantic, sua instrucao e seu verificador.
-
-O agent executa as etapas na ordem de ETAPAS e so passa para a proxima quando a
-atual e aprovada pela verificacao (ver verificacao.py).
-"""
+"""Etapas do Agent1: cada uma tem seu esquema Pydantic, sua instrucao e seu verificador."""
 
 import json
 from collections.abc import Callable
@@ -100,7 +96,6 @@ Exemplos:
 
 
 def instrucao_classificacao() -> str:
-    """Instrucao com as categorias ativas no momento (padrao + criadas pelo agent)."""
     ativas = categorias.repositorio.ativas()
     return INSTRUCAO_CLASSIFICACAO.format(
         categorias="\n".join(f"- {c.nome}: {c.descricao}" for c in ativas)
@@ -108,11 +103,7 @@ def instrucao_classificacao() -> str:
 
 
 def esquema_classificacao() -> type[BaseModel]:
-    """Esquema enviado ao Gemini, montado na hora com as categorias ativas.
-
-    As categorias entram como enumeracao: o Gemini so consegue devolver nomes da lista.
-    A saida para algo novo e o campo novaCategoria, tratado em _normalizar_classificacao.
-    """
+    """Esquema da classificacao com as categorias ativas como enumeracao."""
     nomes = [c.nome for c in categorias.repositorio.ativas()]
     Opcoes = Enum("CategoriaAtiva", {f"C{i}": nome for i, nome in enumerate(nomes)}, type=str)
     return create_model(
@@ -132,17 +123,14 @@ def esquema_classificacao() -> type[BaseModel]:
 
 
 class ClassificacaoVerificada(BaseModel):
-    """Classificacao depois da normalizacao: o que a verificacao da etapa recebe."""
-
     tiposDespesa: list[str]
     novaCategoria: NovaCategoria | None = None
-    # Apenas para a verificacao; nao seguem para a nota.
     categoriaInativa: str | None = Field(default=None, exclude=True)
     observacoes: list[str] = Field(default_factory=list, exclude=True)
 
 
 # ---------------------------------------------------------------------------
-# Normalizacao: ajustes deterministicos antes de verificar
+# Normalizacao
 # ---------------------------------------------------------------------------
 
 
@@ -167,12 +155,7 @@ def _normalizar_financeiro(dados: EsquemaFinanceiro) -> EsquemaFinanceiro:
 
 
 def _normalizar_classificacao(dados: Any) -> ClassificacaoVerificada:
-    """Converte a resposta do Gemini e resolve a categoria nova, se ele propos uma.
-
-    - equivalente a uma existente e ativa ("Combustiveis" x "COMBUSTIVEL"): usa a existente;
-    - equivalente a uma inativada pelo admin: marca, e a verificacao reprova a etapa;
-    - nota ja classificada em categorias existentes: descarta a proposta, por cautela.
-    """
+    """Converte a resposta do Gemini e resolve a categoria nova, se ele propos uma."""
     tipos = [t.value if isinstance(t, Enum) else str(t) for t in dados.tiposDespesa]
     resultado = ClassificacaoVerificada(tiposDespesa=list(dict.fromkeys(tipos)))
     proposta = dados.novaCategoria
@@ -205,23 +188,19 @@ def _normalizar_classificacao(dados: Any) -> ClassificacaoVerificada:
 # Definicao das etapas
 # ---------------------------------------------------------------------------
 
-Contexto = dict[str, Any]  # campos ja aprovados nas etapas anteriores
+Contexto = dict[str, Any]
 
 
 @dataclass(frozen=True)
 class Etapa:
     id: str
     titulo: str
-    # Funcoes, e nao valores fixos: a classificacao monta os dois na hora, com as
-    # categorias ativas naquele momento.
     esquema: Callable[[], type[BaseModel]]
     instrucao: Callable[[], str]
-    usa_pdf: bool  # a classificacao trabalha so com o texto ja extraido
+    usa_pdf: bool
     pedido: Callable[[Contexto], str]
     verificar: Callable[[Any, Contexto], Resultado]
     normalizar: Callable[[Any], Any] = field(default=lambda dados: dados)
-    # Quanto o Gemini 3 "pensa" antes de responder. MEDIUM equilibra cuidado e tempo: o
-    # padrao dele (HIGH) deixava a extracao lenta e LOW pensava pouco para a classificacao.
     pensamento: types.ThinkingLevel = types.ThinkingLevel.MEDIUM
 
 
@@ -261,7 +240,6 @@ ETAPAS: tuple[Etapa, ...] = (
         instrucao=lambda: INSTRUCAO_FINANCEIRO,
         usa_pdf=True,
         pedido=lambda _: "Extraia o valor total e as parcelas desta nota fiscal.",
-        # A data de emissao aprovada na etapa 1 serve para conferir os vencimentos.
         verificar=lambda dados, contexto: verificar_financeiro(dados, contexto["dataEmissao"]),
         normalizar=_normalizar_financeiro,
     ),

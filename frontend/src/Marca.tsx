@@ -1,10 +1,6 @@
 import { useId } from 'react'
 
-/**
- * Marca do SysFinan: escudo com setas circulares e documento com checklist.
- * As cores das classes mk-* ficam em styles.css (tokens --marca-*), então
- * acompanham o tema do app. É o mesmo desenho de public/favicon.svg.
- */
+/** Marca do SysFinan (mesmo desenho de public/favicon.svg); cores em styles.css. */
 export default function Marca({ tamanho = 32 }: { tamanho?: number }) {
   // useId devolve ":r0:"; dois-pontos quebram a referência url(#...).
   const id = 'marca' + useId().replace(/:/g, '')

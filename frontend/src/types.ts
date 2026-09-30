@@ -28,16 +28,16 @@ export interface NotaFiscalExtraida {
   tiposDespesa: string[]
 }
 
-/** Situação da chave da API do Gemini cadastrada no back-end. */
 export interface StatusChaveApi {
   informada: boolean
-  /** Apenas o final da chave (ex.: "••••abcd"), nunca a chave inteira. */
+  /** Só o final da chave, ex.: "••••abcd". */
   mascara: string | null
+  /** Quando o Google aceitou a chave. */
+  verificadaEm: string | null
 }
 
 export type StatusEtapa = 'concluida' | 'falhou' | 'nao_executada'
 
-/** Relatório da verificação de uma etapa do Agent1. */
 export interface VerificacaoEtapa {
   etapa: string
   titulo: string
@@ -45,56 +45,24 @@ export interface VerificacaoEtapa {
   tentativas: number
   modelo: string | null
   duracaoMs: number
-  /** Falhas que impediram a etapa de concluir. */
   problemas: string[]
-  /** Pontos de atenção que não impediram a etapa. */
   avisos: string[]
 }
 
-/** Categoria de despesa: uma das 9 padrão ou criada pelo agent. */
 export interface Categoria {
   nome: string
   descricao: string
-  /** true para as 9 categorias fixas do sistema (não podem ser inativadas). */
+  /** true para as 9 categorias fixas do sistema. */
   padrao: boolean
   ativa: boolean
   criadaEm: string | null
-  /** Número da nota que levou o agent a criar a categoria. */
   notaOrigem: string | null
 }
 
-/** Resposta do POST /extrair: `dados` só vem quando todas as etapas concluíram. */
+/** `dados` só vem quando todas as etapas concluíram. */
 export interface ResultadoExtracao {
   concluida: boolean
   etapas: VerificacaoEtapa[]
   dados: NotaFiscalExtraida | null
-  /** Categoria que o agent criou nesta extração, se criou. */
   categoriaCriada: Categoria | null
-}
-
-export interface StatusModelo {
-  modelo: string
-  disponivel: boolean
-  latenciaMs: number | null
-  erro: string | null
-}
-
-export interface TesteGeracao {
-  sucesso: boolean
-  modelo: string | null
-  latenciaMs: number | null
-  erro: string | null
-  cotaEsgotada: boolean
-}
-
-/** Diagnóstico de funcionamento do Agent1 (GET /saude/agent). */
-export interface SaudeAgent {
-  status: 'operacional' | 'degradado' | 'inoperante'
-  mensagem: string
-  chaveInformada: boolean
-  chaveValida: boolean | null
-  modelos: StatusModelo[]
-  testeGeracao: TesteGeracao | null
-  etapas: string[]
-  verificadoEm: string
 }

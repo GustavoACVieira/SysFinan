@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { extrairDados, SessaoExpirada } from './api'
-import Etapas from './Etapas'
+// import Etapas from './Etapas'
 import type { ResultadoExtracao } from './types'
 
 interface Props {
@@ -113,8 +113,14 @@ export default function Extracao({
           </p>
         )}
         {erro && <p className="erro">{erro}</p>}
+        {etapaReprovada && (
+          <p className="erro">
+            A extração parou na etapa “{etapaReprovada.titulo}”: {etapaReprovada.problemas.join(' ')}
+          </p>
+        )}
       </section>
 
+      {/* Painel de etapas da extração, desativado.
       {resultado && (
         <section className="painel">
           <div className="painel-cabecalho">
@@ -125,13 +131,21 @@ export default function Extracao({
             </span>
           </div>
 
-          {etapaReprovada && (
-            <p className="erro erro-topo">
-              A extração parou na etapa “{etapaReprovada.titulo}”: ela foi reprovada na
-              verificação e as etapas seguintes não foram executadas.
-            </p>
-          )}
-          {resultado.categoriaCriada && (
+          <Etapas etapas={resultado.etapas} />
+        </section>
+      )}
+      */}
+
+      {dados && (
+        <section className="painel">
+          <div className="painel-cabecalho">
+            <h2>Dados extraídos</h2>
+            <button type="button" className="botao-secundario" onClick={copiarJson}>
+              {copiado ? 'Copiado' : 'Copiar JSON'}
+            </button>
+          </div>
+
+          {resultado?.categoriaCriada && (
             <div className="categoria-criada">
               <p>
                 O agent criou a categoria <strong>{resultado.categoriaCriada.nome}</strong>:{' '}
@@ -142,18 +156,6 @@ export default function Extracao({
               </button>
             </div>
           )}
-          <Etapas etapas={resultado.etapas} />
-        </section>
-      )}
-
-      {dados && (
-        <section className="painel">
-          <div className="painel-cabecalho">
-            <h2>Dados extraídos</h2>
-            <button type="button" className="botao-secundario" onClick={copiarJson}>
-              {copiado ? 'Copiado' : 'Copiar JSON'}
-            </button>
-          </div>
 
           <pre className="json">{JSON.stringify(dados, null, 2)}</pre>
         </section>

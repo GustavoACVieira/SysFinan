@@ -1,21 +1,10 @@
 """Contrato de dados da extracao da nota fiscal.
 
-Os campos usam camelCase de proposito: estes modelos sao, ao mesmo tempo, o
-response_schema enviado ao Gemini e o JSON devolvido ao front, que declara o
-mesmo contrato em frontend/src/types.ts.
-
-Os campos extraidos do documento aceitam null: se a informacao nao constar na
-nota, o Gemini deve devolver null em vez de inventar um valor.
-
-Organizacao:
-- Esquemas das etapas: cada um e o response_schema de uma etapa do Agent1, que
-  so avanca para o proximo quando o atual passa na verificacao.
-- NotaFiscalExtraida: a nota completa, composta pelos esquemas das etapas.
-- Verificacao: o relatorio de cada etapa e o diagnostico de funcionamento do agent.
+Os campos usam camelCase porque estes modelos sao o response_schema enviado ao
+Gemini e tambem o JSON devolvido ao front (ver frontend/src/types.ts).
 """
 
 from enum import Enum
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -94,9 +83,7 @@ class EsquemaFinanceiro(BaseModel):
 class EsquemaClassificacao(BaseModel):
     """Etapa 4 — em que tipo de despesa a nota se enquadra (interpretado, nao extraido).
 
-    No JSON final e uma lista de nomes. Para o Gemini, a etapa monta na hora um esquema
-    com as categorias ativas como enumeracao (ver etapas.esquema_classificacao), entao
-    ele nao consegue devolver um nome fora da lista.
+    Para o Gemini a etapa usa etapas.esquema_classificacao, com as categorias ativas.
     """
 
     tiposDespesa: list[str] = Field(
@@ -108,8 +95,6 @@ class EsquemaClassificacao(BaseModel):
 
 
 class NovaCategoria(BaseModel):
-    """Categoria proposta pelo agent quando nenhuma das existentes representa a despesa."""
-
     nome: str = Field(
         description="Nome curto em MAIUSCULAS, no estilo das existentes (ex.: SERVICOS OPERACIONAIS)"
     )
@@ -118,8 +103,7 @@ class NovaCategoria(BaseModel):
     )
 
 
-# A ordem das bases e a inversa da ordem dos campos: o Pydantic monta os campos
-# percorrendo as bases de tras para frente, e o JSON precisa sair na ordem das etapas.
+# Bases em ordem inversa para os campos sairem na ordem das etapas.
 class NotaFiscalExtraida(
     EsquemaClassificacao, EsquemaFinanceiro, EsquemaProdutos, EsquemaIdentificacao
 ):
@@ -134,12 +118,10 @@ class NotaFiscalExtraida(
 class StatusEtapa(str, Enum):
     CONCLUIDA = "concluida"
     FALHOU = "falhou"
-    NAO_EXECUTADA = "nao_executada"  # uma etapa anterior falhou
+    NAO_EXECUTADA = "nao_executada"
 
 
 class VerificacaoEtapa(BaseModel):
-    """Relatorio da verificacao de uma etapa: e ele que libera (ou nao) a proxima."""
-
     etapa: str
     titulo: str
     status: StatusEtapa
@@ -155,8 +137,6 @@ class VerificacaoEtapa(BaseModel):
 
 
 class Categoria(BaseModel):
-    """Categoria de despesa como o sistema a guarda (padrao ou criada pelo agent)."""
-
     nome: str
     descricao: str
     padrao: bool = Field(description="true para as 9 categorias fixas do sistema")
@@ -168,15 +148,11 @@ class Categoria(BaseModel):
 
 
 class SituacaoCategoria(BaseModel):
-    """Entrada do PUT /categorias/situacao: inativar ou reativar uma categoria criada."""
-
     nome: str
     ativa: bool
 
 
 class ResultadoExtracao(BaseModel):
-    """Resposta do POST /extrair: a nota (se todas as etapas concluiram) e o relatorio."""
-
     concluida: bool
     etapas: list[VerificacaoEtapa]
     dados: NotaFiscalExtraida | None = None
@@ -184,34 +160,3 @@ class ResultadoExtracao(BaseModel):
         default=None, description="Categoria que o agent criou nesta extracao, se criou"
     )
 
-
-class StatusModelo(BaseModel):
-    modelo: str
-    disponivel: bool
-    latenciaMs: int | None = None
-    erro: str | None = None
-
-
-class TesteGeracao(BaseModel):
-    """Chamada real ao Gemini com saida estruturada, igual a usada nas etapas."""
-
-    sucesso: bool
-    modelo: str | None = None
-    latenciaMs: int | None = None
-    erro: str | None = None
-    cotaEsgotada: bool = False
-
-
-class SaudeAgent(BaseModel):
-    """Diagnostico de funcionamento do Agent1."""
-
-    status: Literal["operacional", "degradado", "inoperante"]
-    mensagem: str
-    chaveInformada: bool
-    chaveValida: bool | None = Field(
-        default=None, description="null quando nao foi possivel testar (sem chave)"
-    )
-    modelos: list[StatusModelo] = Field(default_factory=list)
-    testeGeracao: TesteGeracao | None = None
-    etapas: list[str] = Field(description="Etapas do pipeline, na ordem de execucao")
-    verificadoEm: str

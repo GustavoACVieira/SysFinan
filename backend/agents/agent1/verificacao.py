@@ -1,12 +1,7 @@
 """Verificacao das etapas do Agent1.
 
-Cada verificador devolve (problemas, avisos):
-- problemas impedem a etapa de concluir: o agent refaz a etapa informando o que
-  estava errado e, se continuar errado, para o pipeline ali;
-- avisos sao registrados no relatorio, mas nao seguram a etapa.
-
-Os verificadores sao deterministicos (sem IA): conferem o que o modelo devolveu
-contra regras que uma nota fiscal valida sempre respeita.
+Cada verificador devolve (problemas, avisos): problemas reprovam a etapa,
+avisos so ficam registrados no relatorio.
 """
 
 import re
@@ -22,7 +17,7 @@ from models import (
 
 Resultado = tuple[list[str], list[str]]
 
-TOLERANCIA_VALOR = 0.01  # diferenca de centavos por arredondamento
+TOLERANCIA_VALOR = 0.01
 RE_CNPJ = re.compile(r"^\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}$")
 RE_CPF = re.compile(r"^\d{3}\.\d{3}\.\d{3}-\d{2}$")
 
@@ -37,7 +32,6 @@ def _digitos(texto: str) -> str:
 
 
 def formatar_cnpj(valor: str | None) -> str | None:
-    """Poe o CNPJ na mascara quando o modelo devolve so os digitos."""
     if valor and len(d := _digitos(valor)) == 14:
         return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}"
     return valor
@@ -95,7 +89,7 @@ def verificar_identificacao(dados: EsquemaIdentificacao) -> Resultado:
     elif not RE_CNPJ.match(fornecedor.cnpj):
         problemas.append(f"CNPJ do fornecedor fora do formato 00.000.000/0000-00: {fornecedor.cnpj}")
     elif not _dv_cnpj_valido(fornecedor.cnpj):
-        # Aviso, e nao problema: notas de teste costumam usar CNPJs ficticios.
+        # So aviso: notas de teste costumam usar CNPJs ficticios.
         avisos.append(f"Dígitos verificadores do CNPJ {fornecedor.cnpj} não conferem.")
 
     if not faturado.nomeCompleto:
@@ -170,7 +164,6 @@ def verificar_financeiro(dados: EsquemaFinanceiro, data_emissao: str | None) -> 
 
 
 def verificar_classificacao(dados) -> Resultado:
-    """Recebe a classificacao normalizada da etapa ou, na consolidacao, a nota completa."""
     problemas: list[str] = []
     avisos: list[str] = list(getattr(dados, "observacoes", []))
     inativa = getattr(dados, "categoriaInativa", None)
@@ -201,12 +194,7 @@ def verificar_classificacao(dados) -> Resultado:
 
 
 def verificar_consolidacao(nota: NotaFiscalExtraida, categorias_validas: set[str]) -> Resultado:
-    """Redundancia: repete todas as verificacoes sobre a nota ja montada.
-
-    Pega inconsistencias que so aparecem juntando as etapas (ex.: a normalizacao
-    final alterar algo) e garante que o JSON entregue respeita o contrato inteiro.
-    """
-    # Os avisos ja foram registrados nas etapas; aqui so interessam os problemas.
+    """Repete todas as verificacoes sobre a nota ja montada."""
     problemas: list[str] = []
     for encontrados, _avisos in (
         verificar_identificacao(nota),
@@ -216,7 +204,6 @@ def verificar_consolidacao(nota: NotaFiscalExtraida, categorias_validas: set[str
     ):
         problemas += encontrados
 
-    # Redundancia com a enumeracao da etapa: nenhuma categoria fora das ativas (ou da nova).
     for tipo in nota.tiposDespesa:
         if tipo not in categorias_validas:
             problemas.append(f"Categoria desconhecida ou inativa na nota: “{tipo}”.")
@@ -229,7 +216,6 @@ def verificar_consolidacao(nota: NotaFiscalExtraida, categorias_validas: set[str
     if [p.numero for p in nota.parcelas] != list(range(1, len(nota.parcelas) + 1)):
         problemas.append("Parcelas fora da sequência 1, 2, 3…")
 
-    # Revalida o JSON final contra o esquema completo, como o front vai recebe-lo.
     NotaFiscalExtraida.model_validate(nota.model_dump(mode="json"))
 
     return problemas, []

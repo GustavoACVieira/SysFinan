@@ -13,7 +13,6 @@ function formatarData(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('pt-BR') : ''
 }
 
-/** Janela com as categorias de despesa: as padrão e as criadas pelo agent. */
 export default function Categorias({ aberta, aoFechar, aoExpirarSessao }: Props) {
   const [lista, setLista] = useState<Categoria[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -24,7 +23,7 @@ export default function Categorias({ aberta, aoFechar, aoExpirarSessao }: Props)
     setErro(e instanceof Error ? e.message : padrao)
   }
 
-  // Recarrega a cada abertura: o agent pode ter criado uma categoria desde a última vez.
+  // Recarrega a cada abertura: o agent pode ter criado uma categoria nesse meio-tempo.
   function carregar() {
     setErro(null)
     listarCategorias()
@@ -58,7 +57,7 @@ export default function Categorias({ aberta, aoFechar, aoExpirarSessao }: Props)
       {erro && <p className="erro erro-topo">{erro}</p>}
 
       {!lista ? (
-        !erro && <p className="saude-mensagem">Carregando…</p>
+        !erro && <p className="dica categorias-vazio">Carregando…</p>
       ) : (
         <>
           <h3 className="categorias-secao">Criadas pelo agent</h3>

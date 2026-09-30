@@ -6,50 +6,66 @@ import type { StatusChaveApi } from './types'
 interface Props {
   aberta: boolean
   aoFechar: () => void
-  /** null enquanto a situação da chave ainda está sendo consultada. */
   status: StatusChaveApi | null
   aoAlterar: (status: StatusChaveApi) => void
   aoExpirarSessao: () => void
 }
 
-/** Janela para informar, substituir ou remover a chave da API do Gemini. */
+type Acao = 'verificando' | 'removendo'
+type Resultado = { tipo: 'sucesso' | 'falha'; texto: string }
+
+function formatarHora(iso: string): string {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
 export default function ChaveApi({ aberta, aoFechar, status, aoAlterar, aoExpirarSessao }: Props) {
   const campo = useRef<HTMLInputElement>(null)
   const [chave, setChave] = useState('')
   const [visivel, setVisivel] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-  const [salvando, setSalvando] = useState(false)
+  const [acao, setAcao] = useState<Acao | null>(null)
+  const [resultado, setResultado] = useState<Resultado | null>(null)
 
   function aoAbrir() {
     setChave('')
     setVisivel(false)
-    setErro(null)
-    // O showModal foca o primeiro botão (o ×); o que interessa é o campo da chave.
+    setResultado(null)
+    // O showModal foca o ×; o foco vai para o campo.
     campo.current?.focus()
   }
 
-  async function executar(acao: () => Promise<StatusChaveApi>, fecharAoConcluir: boolean) {
-    setSalvando(true)
-    setErro(null)
+  async function executar(tipo: Acao, chamada: () => Promise<StatusChaveApi>, sucesso: string) {
+    setAcao(tipo)
+    setResultado(null)
     try {
-      aoAlterar(await acao())
+      aoAlterar(await chamada())
       setChave('')
-      if (fecharAoConcluir) aoFechar()
+      setResultado({ tipo: 'sucesso', texto: sucesso })
     } catch (e) {
       if (e instanceof SessaoExpirada) return aoExpirarSessao()
-      setErro(e instanceof Error ? e.message : 'Erro inesperado ao salvar a chave')
+      setResultado({
+        tipo: 'falha',
+        texto: e instanceof Error ? e.message : 'Erro inesperado ao salvar a chave',
+      })
     } finally {
-      setSalvando(false)
+      setAcao(null)
     }
   }
 
   function enviar(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    executar(() => salvarChave(chave.trim()), true)
+    executar('verificando', () => salvarChave(chave.trim()), 'Chave verificada com o Google e ativada.')
   }
 
+  const ocupada = acao !== null
+
   return (
-    <Janela aberta={aberta} aoFechar={aoFechar} titulo="Chave da API do Gemini" aoAbrir={aoAbrir}>
+    <Janela
+      aberta={aberta}
+      aoFechar={aoFechar}
+      titulo="Chave da API do Gemini"
+      aoAbrir={aoAbrir}
+      bloqueada={ocupada}
+    >
       <p className="janela-status">
         Situação: <SeloStatus status={status} />
       </p>
@@ -65,7 +81,7 @@ export default function ChaveApi({ aberta, aoFechar, status, aoAlterar, aoExpira
             ref={campo}
             value={chave}
             onChange={(e) => setChave(e.target.value)}
-            disabled={salvando}
+            disabled={ocupada}
             aria-label="Chave da API do Gemini"
           />
           <button
@@ -78,30 +94,31 @@ export default function ChaveApi({ aberta, aoFechar, status, aoAlterar, aoExpira
           </button>
         </div>
 
-        <button type="submit" className="botao-primario" disabled={salvando || !chave.trim()}>
-          {salvando ? 'Salvando…' : 'Salvar'}
+        <button type="submit" className="botao-primario" disabled={ocupada || !chave.trim()}>
+          {acao === 'verificando' ? 'Verificando…' : 'Salvar'}
         </button>
         {status?.informada && (
           <button
             type="button"
             className="botao-secundario"
-            onClick={() => executar(removerChave, false)}
-            disabled={salvando}
+            onClick={() => executar('removendo', removerChave, 'Chave removida.')}
+            disabled={ocupada}
           >
-            Remover
+            {acao === 'removendo' ? 'Removendo…' : 'Remover'}
           </button>
         )}
       </form>
 
-      <p className="dica">
-        Gere a chave em{' '}
-        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
-          aistudio.google.com/apikey
-        </a>
-        . Ela fica salva no servidor, em <code>backend/.env</code>.
-      </p>
-
-      {erro && <p className="erro">{erro}</p>}
+      <div aria-live="polite">
+        {acao === 'verificando' && (
+          <p className="dica">Verificando a chave com o Google. Aguarde o resultado…</p>
+        )}
+        {resultado && (
+          <p className={resultado.tipo === 'sucesso' ? 'mensagem-sucesso' : 'erro'}>
+            {resultado.texto}
+          </p>
+        )}
+      </div>
     </Janela>
   )
 }
@@ -113,6 +130,7 @@ function SeloStatus({ status }: { status: StatusChaveApi | null }) {
     <span className="selo selo-ativa">
       <span className="selo-ponto" aria-hidden="true" />
       Ativa · {status.mascara}
+      {status.verificadaEm && ` · verificada às ${formatarHora(status.verificadaEm)}`}
     </span>
   ) : (
     <span className="selo selo-inativa">

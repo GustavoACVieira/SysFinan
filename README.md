@@ -73,8 +73,7 @@ Desempenho:
 - Raciocínio (`thinking_level`) `MEDIUM` em todas as etapas: o padrão do Gemini 3 (`HIGH`)
   deixava a extração lenta, e `LOW` pensava pouco para a classificação.
 - Quando um modelo reserva atende, as chamadas seguintes começam por ele durante 5 minutos,
-  em vez de esbarrar de novo no preferido que acabou de falhar. O diagnóstico de
-  funcionamento ignora essa fixação, para detectar quando o preferido volta.
+  em vez de esbarrar de novo no preferido que acabou de falhar.
 - Não há repetição no mesmo modelo: um modelo sobrecarregado demora para devolver o 503, e
   repetir nele só dobraria a espera — a cadeia de reservas é quem dá a resiliência.
 
@@ -191,7 +190,7 @@ SysFinan/
 │   ├── agents/
 │   │   └── agent1/
 │   │       ├── __init__.py
-│   │       ├── manipulacao_dados.py    # class Agent1 -> extrair_dados(file_path) e verificar_funcionamento()
+│   │       ├── manipulacao_dados.py    # class Agent1 -> extrair_dados(file_path)
 │   │       ├── etapas.py               # Ordem das etapas, instruções e esquema de cada uma
 │   │       └── verificacao.py          # Regras que aprovam/reprovam cada etapa
 │   └── .env
@@ -209,9 +208,8 @@ SysFinan/
 │   │   ├── ChaveApi.tsx                # Janela de cadastro da chave do Gemini
 │   │   ├── Categorias.tsx              # Janela das categorias (inativar/reativar as criadas)
 │   │   ├── Janela.tsx                  # Janela modal reutilizável (<dialog>)
-│   │   ├── SaudeAgent.tsx              # Verificação de funcionamento do agent
 │   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
-│   │   ├── Etapas.tsx                  # Relatório das etapas da extração
+│   │   ├── Etapas.tsx                  # Relatório das etapas (painel desativado no Extracao.tsx)
 │   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
 │   │   └── types.ts                    # Contrato do JSON da nota fiscal
 │   └── package.json
@@ -248,7 +246,7 @@ Se os serviços forem criados à mão no painel do Render, use os mesmos valores
 | Build Command | `pip install -r requirements.txt` |
 | Start Command | `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT` |
 | Health Check Path | `/health` |
-| Variáveis | `GEMINI_API_KEY`, `FRONTEND_URL` e, opcionalmente, `GEMINI_MODEL`, `SYSFINAN_USUARIO`, `SYSFINAN_SENHA` |
+| Variáveis | `FRONTEND_URL` e, opcionalmente, `GEMINI_MODEL`, `SYSFINAN_USUARIO`, `SYSFINAN_SENHA` |
 
 **Frontend — Static Site**
 
@@ -266,9 +264,8 @@ Erros comuns ao iniciar a API:
   (`127.0.0.1:8000`) não é visível para o Render.
 - Erro de versão do Python no build: defina `PYTHON_VERSION=3.14.7` (a usada no desenvolvimento).
 
-> A chave cadastrada pela tela é gravada no disco do servidor, que no Render é temporário:
-> some a cada deploy ou reinício. Para ela ficar permanente, cadastre-a em
-> **Environment → GEMINI_API_KEY**. As sessões de login também são perdidas quando o serviço
+> A chave da API não é salva em lugar nenhum: é informada pela tela a cada vez que o servidor
+> sobe e fica só na memória. As sessões de login também são perdidas quando o serviço
 > gratuito hiberna — basta entrar de novo.
 
 ---
@@ -293,7 +290,6 @@ Variáveis de ambiente:
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
-| `GEMINI_API_KEY` | Chave da API do Gemini (também pode ser cadastrada pela tela, que grava aqui) | — |
 | `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula; os demais Flash servem de reserva | `gemini-3.8-flash` → `3.7` → `3.6` → `3.5` |
 | `SYSFINAN_USUARIO` | Usuário do login | `admin` |
 | `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
@@ -307,11 +303,10 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | Método | Rota | Entrada | Saída |
 |--------|------|---------|-------|
 | `GET` | `/health` | — | `{ "status": "ok" }` (health check leve, sem chamar o Gemini) |
-| `GET` | `/saude/agent` | — | Diagnóstico do agent: chave válida, disponibilidade de cada modelo e um teste real de geração estruturada |
 | `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
 | `POST` | `/logout` | — | `204` |
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
-| `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (grava em `backend/.env`) |
+| `PUT` | `/chave-api` | JSON `{ "chave" }` | situação da chave (só em memória; não é salva) |
 | `DELETE` | `/chave-api` | — | situação da chave |
 | `GET` | `/categorias` | — | Lista de categorias (padrão e criadas, ativas e inativas) |
 | `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa uma criada) |
@@ -361,10 +356,9 @@ vermelha = **Não informada**). Ao clicar, abre uma janela com os 4 últimos car
 onde é possível cadastrar, substituir ou remover a chave. O botão
 **EXTRAIR DADOS** só fica liberado com a chave informada.
 
-O painel **Funcionamento do agent** roda o diagnóstico de `GET /saude/agent` sob demanda e mostra
-o status (**Operacional**, **Degradado** ou **Inoperante**), cada modelo da cadeia e o
-resultado do teste de geração. Depois da extração, o painel **Etapas da extração** mostra o
-relatório de cada etapa.
+Se alguma etapa for reprovada, a tela mostra em qual etapa a extração parou e por quê. O
+relatório completo das etapas continua na resposta da API (`etapas`); o painel que o exibia
+está comentado em `Extracao.tsx`.
 
 O front envia o PDF em `multipart/form-data` (campo `arquivo`) para `POST {VITE_API_URL}/extrair`
 e exibe na tela o JSON devolvido.

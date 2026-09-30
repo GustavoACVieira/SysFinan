@@ -1,11 +1,7 @@
 """Categorias de despesa: as 9 padrao (fixas) e as criadas pelo agent.
 
-As criadas ficam, por enquanto, em backend/dados/categorias.json. Todo acesso passa
-por RepositorioCategorias: quando o projeto ganhar o MySQL, basta trocar a
-implementacao dele, sem mexer no agent nem nas rotas.
-
-Regra do projeto: cadastro nao se exclui, se inativa (e pode ser reativado). Uma
-categoria inativa some das opcoes do agent, e ele nao pode recria-la.
+As criadas ficam em backend/dados/categorias.json por enquanto; na migracao para
+o MySQL, so o RepositorioCategorias muda.
 """
 
 import json
@@ -18,7 +14,6 @@ from pathlib import Path
 
 from models import Categoria, CategoriaDespesa
 
-# Exemplos das categorias padrao: entram no prompt como contexto de classificacao.
 EXEMPLOS_PADRAO = {
     CategoriaDespesa.INSUMOS_AGRICOLAS: "sementes, fertilizantes, defensivos agrícolas, corretivos",
     CategoriaDespesa.MANUTENCAO_E_OPERACAO: (
@@ -51,32 +46,26 @@ TAMANHO_NOME = (3, 40)
 
 
 def formatar_nome(nome: str) -> str:
-    """Nome no padrao das categorias: MAIUSCULAS e espacos simples."""
     return re.sub(r"\s+", " ", nome).strip().upper()
 
 
 def chave(nome: str) -> str:
-    """Forma de comparacao: sem acento, sem pontuacao e no singular.
-
-    Faz "Combustíveis", "COMBUSTIVEL" e "combustível " darem a mesma chave, para o
-    agent nao criar duas categorias que sao a mesma.
-    """
+    """Forma de comparacao: sem acento, sem pontuacao e no singular."""
     sem_acento = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
     palavras = re.sub(r"[^A-Z0-9]+", " ", sem_acento.upper()).split()
-    # "E"/"DE"/"DO"... nao distinguem categorias ("MANUTENCAO E OPERACAO").
     return " ".join(_singular(p) for p in palavras if p not in _LIGACOES)
 
 
 _LIGACOES = {"E", "DE", "DA", "DO", "DAS", "DOS"}
-# Plurais do portugues, do mais especifico ao mais geral (palavras ja sem acento).
+# Do mais especifico ao mais geral.
 _PLURAIS = (
-    ("OES", "AO"),  # operacoes -> operacao
-    ("AES", "AO"),  # paes -> pao
-    ("EIS", "EL"),  # combustiveis -> combustivel
-    ("AIS", "AL"),  # operacionais -> operacional
-    ("RES", "R"),  # motores -> motor
-    ("ZES", "Z"),  # luzes -> luz
-    ("S", ""),  # insumos -> insumo
+    ("OES", "AO"),
+    ("AES", "AO"),
+    ("EIS", "EL"),
+    ("AIS", "AL"),
+    ("RES", "R"),
+    ("ZES", "Z"),
+    ("S", ""),
 )
 
 
@@ -90,13 +79,12 @@ def _singular(palavra: str) -> str:
 
 
 class RepositorioCategorias:
-    """Leitura e gravacao das categorias. Implementacao atual: arquivo JSON."""
 
     def __init__(self, caminho: Path):
         self._caminho = caminho
-        self._trava = threading.Lock()  # extracoes rodam em threads do FastAPI
+        self._trava = threading.Lock()
 
-    # --- persistencia (o que muda quando vier o MySQL) -----------------------
+    # --- persistencia ------------------------------------------------------
 
     def _ler_criadas(self) -> list[Categoria]:
         if not self._caminho.exists():
@@ -109,7 +97,6 @@ class RepositorioCategorias:
         temporario = self._caminho.with_suffix(".tmp")
         conteudo = [c.model_dump(mode="json") for c in criadas]
         temporario.write_text(json.dumps(conteudo, ensure_ascii=False, indent=2), encoding="utf-8")
-        # Troca atomica: um erro no meio da gravacao nao corrompe o arquivo existente.
         os.replace(temporario, self._caminho)
 
     # --- consultas -----------------------------------------------------------
@@ -129,7 +116,6 @@ class RepositorioCategorias:
         return [c for c in self.listar() if c.ativa]
 
     def buscar(self, nome: str) -> Categoria | None:
-        """Procura pela chave normalizada, ativa ou nao."""
         procurada = chave(nome)
         return next((c for c in self.listar() if chave(c.nome) == procurada), None)
 
@@ -156,7 +142,6 @@ class RepositorioCategorias:
             return nova
 
     def definir_ativa(self, nome: str, ativa: bool) -> Categoria:
-        """Inativa ou reativa uma categoria criada. As padrao nao podem ser inativadas."""
         procurada = chave(nome)
         if any(chave(c.nome) == procurada for c in self.padrao()):
             raise ValueError("As categorias padrão não podem ser inativadas.")

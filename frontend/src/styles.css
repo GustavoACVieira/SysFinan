@@ -1,11 +1,6 @@
 /*
- * Paleta base: #65964B verde · #363621 oliva · #E37334 laranja · #2D9687 turquesa · #E4C12B amarelo.
- * Os tons puros vão na marca e em destaques; texto e botões usam tons derivados (mais escuros
- * no claro, mais claros no escuro) para passar no contraste mínimo de 4,5:1 (WCAG AA).
- * Papéis: laranja = cor principal (ações, links, foco e a seta que sobe na marca — o tom de
- * "finanças") · oliva = texto e superfícies · turquesa = secundária · verde = sucesso ·
- * amarelo = aviso · carmim (derivado do laranja, puxado para o vermelho) = erro, bem distante
- * do laranja para "clique aqui" não se confundir com "deu errado".
+ * Paleta: #65964B verde · #363621 oliva · #E37334 laranja · #2D9687 turquesa · #E4C12B amarelo.
+ * Texto e botões usam tons derivados, para manter o contraste mínimo de 4,5:1.
  */
 :root {
   color-scheme: light;
@@ -95,7 +90,6 @@ body {
 
 /* ---------- Marca ---------- */
 
-/* Cores do desenho da marca (Marca.tsx), ligadas aos tokens do tema. */
 .mk-a { fill: var(--marca-seta); }
 .mk-as { stroke: var(--marca-seta); }
 .mk-v { fill: var(--marca-verde); }
@@ -129,12 +123,10 @@ body {
   color: var(--acento);
 }
 
-/* No login o nome é grande (texto grande pede só 3:1), então cabe o laranja mais vivo. */
 .login-nome .marca-finan {
   color: var(--destaque);
 }
 
-/* Filete laranja sob o título da página e no topo do card de login. */
 .titulo-pagina::after {
   content: '';
   display: block;
@@ -519,59 +511,16 @@ h1 {
   font-size: 0.8rem;
 }
 
-.erro-topo {
-  margin: 0 0 16px;
-}
-
-.selo-alerta {
-  background: var(--alerta-fundo);
-  color: var(--alerta);
-}
-
-/* ---------- Funcionamento do agent ---------- */
-
-.saude-mensagem {
-  margin: 0;
-}
-
-.saude-lista {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--borda);
-  border-radius: 10px;
-}
-
-.saude-lista li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 8px 12px;
-}
-
-.saude-lista li + li {
-  border-top: 1px solid var(--borda);
-}
-
-.saude-lista .ok {
+.mensagem-sucesso {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: var(--sucesso-fundo);
   color: var(--sucesso);
 }
 
-.saude-lista .falha {
-  color: var(--erro);
-}
-
-.saude-nome {
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
-  font-size: 13px;
-}
-
-.saude-detalhe {
-  margin-left: auto;
-  color: var(--texto-suave);
-  font-size: 0.8rem;
-  text-align: right;
-  overflow-wrap: anywhere;
+.erro-topo {
+  margin: 0 0 16px;
 }
 
 /* ---------- Etapas da extracao ---------- */
@@ -756,7 +705,12 @@ h1 {
   cursor: pointer;
 }
 
-.botao-fechar:hover {
+.botao-fechar:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.botao-fechar:hover:not(:disabled) {
   background: var(--realce);
   color: var(--texto);
 }
@@ -767,7 +721,6 @@ h1 {
   width: min(640px, calc(100vw - 32px));
 }
 
-/* Lista longa (9 padrão + criadas): rola dentro da janela, não a página. */
 .janela-larga .janela-conteudo {
   max-height: min(80vh, 720px);
   overflow-y: auto;

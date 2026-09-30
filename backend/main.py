@@ -2,32 +2,36 @@
 
 import os
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import errors as genai_errors
 from pydantic import BaseModel
 
-CAMINHO_ENV = Path(__file__).with_name(".env")
-load_dotenv(CAMINHO_ENV)
+load_dotenv(Path(__file__).with_name(".env"))
 
 import categorias  # noqa: E402
-from agents.agent1.manipulacao_dados import Agent1, chave_recusada  # noqa: E402
-from models import Categoria, ResultadoExtracao, SaudeAgent, SituacaoCategoria  # noqa: E402
+from agents.agent1.manipulacao_dados import (  # noqa: E402
+    Agent1,
+    ChaveInvalida,
+    VerificacaoIndisponivel,
+    chave_recusada,
+)
+from models import Categoria, ResultadoExtracao, SituacaoCategoria  # noqa: E402
 from seguranca import Credenciais, Sessao, autenticar, encerrar, exigir_login  # noqa: E402
 
 TAMANHO_MAXIMO = 20 * 1024 * 1024  # limite de PDF enviado inline ao Gemini
 
 app = FastAPI(title="SysFinan — Extração de Nota Fiscal", version="0.1.0")
 
-# Sem FRONTEND_URL, libera o Vite local (que atende tanto localhost quanto
-# 127.0.0.1). No Render, FRONTEND_URL recebe a URL publica do front.
+# No Render, FRONTEND_URL recebe a URL publica do front.
 ORIGENS_PERMITIDAS = [
-    origem.strip().rstrip("/")  # "https://x.onrender.com/" nao casaria com o Origin
+    origem.strip().rstrip("/")
     for origem in os.getenv(
         "FRONTEND_URL", "http://localhost:5173,http://127.0.0.1:5173"
     ).split(",")
@@ -42,6 +46,7 @@ app.add_middleware(
 )
 
 agent1 = Agent1()
+_chave_verificada_em: str | None = None
 
 
 class NovaChaveApi(BaseModel):
@@ -50,7 +55,8 @@ class NovaChaveApi(BaseModel):
 
 class StatusChaveApi(BaseModel):
     informada: bool
-    mascara: str | None = None  # só o final da chave, para o usuário reconhecê-la
+    mascara: str | None = None
+    verificadaEm: str | None = None
 
 
 @app.get("/health")
@@ -62,21 +68,9 @@ def status_chave() -> StatusChaveApi:
     chave = agent1.api_key
     if not chave:
         return StatusChaveApi(informada=False)
-    return StatusChaveApi(informada=True, mascara=f"••••{chave[-4:]}")
-
-
-def gravar_chave(chave: str) -> None:
-    """Aplica a chave no Agent1 e grava no .env, para sobreviver a um reinício."""
-    agent1.definir_api_key(chave)
-    os.environ["GEMINI_API_KEY"] = chave
-    CAMINHO_ENV.touch(exist_ok=True)
-    set_key(CAMINHO_ENV, "GEMINI_API_KEY", chave, quote_mode="never")
-
-
-@app.get("/saude/agent", response_model=SaudeAgent, dependencies=[Depends(exigir_login)])
-async def saude_agent() -> SaudeAgent:
-    """Verifica o funcionamento do Agent1: chave, modelos e uma geração real."""
-    return await run_in_threadpool(agent1.verificar_funcionamento)
+    return StatusChaveApi(
+        informada=True, mascara=f"••••{chave[-4:]}", verificadaEm=_chave_verificada_em
+    )
 
 
 @app.post("/login", response_model=Sessao)
@@ -96,22 +90,33 @@ def obter_chave_api() -> StatusChaveApi:
 
 @app.put("/chave-api", response_model=StatusChaveApi, dependencies=[Depends(exigir_login)])
 def salvar_chave_api(nova: NovaChaveApi) -> StatusChaveApi:
+    global _chave_verificada_em
     chave = nova.chave.strip()
     if not chave:
         raise HTTPException(status_code=400, detail="Informe a chave da API.")
-    gravar_chave(chave)
+    try:
+        Agent1.verificar_api_key(chave)
+    except ChaveInvalida as erro:
+        raise HTTPException(status_code=400, detail=str(erro)) from erro
+    except VerificacaoIndisponivel as erro:
+        raise HTTPException(status_code=503, detail=str(erro)) from erro
+
+    # Fica so em memoria: nao e gravada em disco e se perde quando o servidor reinicia.
+    agent1.definir_api_key(chave)
+    _chave_verificada_em = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return status_chave()
 
 
 @app.delete("/chave-api", response_model=StatusChaveApi, dependencies=[Depends(exigir_login)])
 def remover_chave_api() -> StatusChaveApi:
-    gravar_chave("")
+    global _chave_verificada_em
+    agent1.definir_api_key(None)
+    _chave_verificada_em = None
     return status_chave()
 
 
 @app.get("/categorias", response_model=list[Categoria], dependencies=[Depends(exigir_login)])
 def listar_categorias() -> list[Categoria]:
-    """As 9 categorias padrão e as criadas pelo agent (ativas e inativas)."""
     return categorias.repositorio.listar()
 
 
@@ -119,7 +124,6 @@ def listar_categorias() -> list[Categoria]:
     "/categorias/situacao", response_model=Categoria, dependencies=[Depends(exigir_login)]
 )
 def alterar_situacao_categoria(situacao: SituacaoCategoria) -> Categoria:
-    """Inativa ou reativa uma categoria criada (cadastros não se excluem, se inativam)."""
     try:
         return categorias.repositorio.definir_ativa(situacao.nome, situacao.ativa)
     except ValueError as erro:
@@ -132,11 +136,7 @@ def alterar_situacao_categoria(situacao: SituacaoCategoria) -> Categoria:
     "/extrair", response_model=ResultadoExtracao, dependencies=[Depends(exigir_login)]
 )
 async def extrair(arquivo: UploadFile = File(...)) -> ResultadoExtracao:
-    """Recebe o PDF da nota fiscal e devolve os dados extraídos pelo Agent1.
-
-    A resposta traz o relatório de cada etapa; `dados` só vem preenchido quando
-    todas as etapas foram aprovadas na verificação.
-    """
+    """Recebe o PDF da nota fiscal e devolve os dados extraídos pelo Agent1."""
     if not agent1.api_key_informada:
         raise HTTPException(
             status_code=400, detail="Informe a chave da API do Gemini antes de extrair."
