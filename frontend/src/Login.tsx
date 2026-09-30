@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { entrar } from './api'
 import Marca from './Marca'
+import Versao from './Versao'
 
 interface Props {
   aoEntrar: () => void
@@ -77,6 +78,8 @@ export default function Login({ aoEntrar }: Props) {
         </button>
 
         {erro && <p className="erro">{erro}</p>}
+
+        <Versao />
       </form>
     </main>
   )

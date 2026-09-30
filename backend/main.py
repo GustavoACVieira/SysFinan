@@ -1,6 +1,7 @@
 """API de extração de dados de nota fiscal (1ª etapa)."""
 
 import os
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,6 +64,37 @@ class StatusChaveApi(BaseModel):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class Versao(BaseModel):
+    commit: str
+    alterado: bool = False
+
+
+def _git(*argumentos: str) -> str:
+    try:
+        resultado = subprocess.run(
+            ["git", *argumentos],
+            cwd=Path(__file__).parent,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return resultado.stdout.strip() if resultado.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+@app.get("/versao", response_model=Versao)
+def versao() -> Versao:
+    """Commit em execucao (no Render, o do deploy), para saber se o ambiente esta atualizado."""
+    commit = os.getenv("RENDER_GIT_COMMIT")
+    if commit:
+        return Versao(commit=commit[:7])
+    return Versao(
+        commit=_git("rev-parse", "HEAD")[:7] or "desconhecida",
+        alterado=_git("status", "--porcelain") != "",
+    )
 
 
 def status_chave() -> StatusChaveApi:

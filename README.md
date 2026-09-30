@@ -307,12 +307,13 @@ Variáveis de ambiente:
 
 ### Endpoints
 
-Todas as rotas, exceto `/login` e `/health`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
+Todas as rotas, exceto `/login`, `/health` e `/versao`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
 ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 
 | Método | Rota | Entrada | Saída |
 |--------|------|---------|-------|
 | `GET` | `/health` | — | `{ "status": "ok" }` (health check leve, sem chamar o Gemini) |
+| `GET` | `/versao` | — | `{ "commit", "alterado" }`: commit em execução (no Render, o do deploy) |
 | `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
 | `POST` | `/logout` | — | `204` |
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
@@ -365,6 +366,11 @@ o botão **Chave API** no cabeçalho mostra a situação da chave (bolinha verde
 vermelha = **Não informada**). Ao clicar, abre uma janela com os 4 últimos caracteres da chave,
 onde é possível cadastrar, substituir ou remover a chave. O botão
 **EXTRAIR DADOS** só fica liberado com a chave informada.
+
+Abaixo do botão **Entrar** aparece a versão: o commit do GitHub em que o front e a API estão
+rodando (no Render, o do deploy, via `RENDER_GIT_COMMIT`), como texto. Se front e
+API estiverem em commits diferentes, aparece o aviso "versões diferentes". Localmente, um `*`
+indica alterações ainda não commitadas.
 
 Se alguma etapa for reprovada, a tela mostra em qual etapa a extração parou e por quê. O
 relatório completo das etapas continua na resposta da API (`etapas`); o painel que o exibia

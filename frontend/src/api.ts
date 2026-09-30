@@ -31,6 +31,18 @@ async function requisitar(caminho: string, init: RequestInit, falha: string): Pr
   return resposta
 }
 
+export interface VersaoApi {
+  commit: string
+  alterado: boolean
+}
+
+/** Rota pública: funciona antes do login. */
+export async function obterVersaoApi(): Promise<VersaoApi> {
+  const resposta = await fetch(`${API_URL}/versao`)
+  if (!resposta.ok) throw new Error(`Falha ao consultar a versão (HTTP ${resposta.status})`)
+  return (await resposta.json()) as VersaoApi
+}
+
 export async function entrar(usuario: string, senha: string): Promise<void> {
   const resposta = await fetch(`${API_URL}/login`, {
     method: 'POST',

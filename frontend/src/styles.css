@@ -808,3 +808,26 @@ h1 {
 .categoria-criada p {
   margin: 0;
 }
+
+/* ---------- Versao ---------- */
+
+.versao {
+  margin: 14px 0 0;
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.versao code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+.versao-diferente {
+  color: var(--alerta);
+}
+
+.versao-aviso {
+  display: block;
+  margin-top: 2px;
+  font-weight: 600;
+}
