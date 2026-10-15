@@ -3,6 +3,8 @@
 import os
 import subprocess
 import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from pydantic import BaseModel
 load_dotenv(Path(__file__).with_name(".env"))
 
 import categorias  # noqa: E402
+from banco import criar_tabelas  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
     Agent1,
     ChaveInvalida,
@@ -29,7 +32,15 @@ from seguranca import Credenciais, Sessao, autenticar, encerrar, exigir_login  #
 
 TAMANHO_MAXIMO = 20 * 1024 * 1024  # limite de PDF enviado inline ao Gemini
 
-app = FastAPI(title="SysFinan — Extração de Nota Fiscal", version="0.1.0")
+@asynccontextmanager
+async def ciclo_de_vida(_: FastAPI) -> AsyncIterator[None]:
+    criar_tabelas()
+    yield
+
+
+app = FastAPI(
+    title="SysFinan — Extração de Nota Fiscal", version="0.1.0", lifespan=ciclo_de_vida
+)
 
 # No Render, FRONTEND_URL recebe a URL publica do front.
 ORIGENS_PERMITIDAS = [

@@ -195,6 +195,8 @@ SysFinan/
 │   ├── main.py                         # FastAPI: login, chave da API e POST /extrair
 │   ├── models.py                       # Esquemas Pydantic: etapas, nota completa e verificação
 │   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
+│   ├── banco.py                        # Conexão com o MySQL (SQLAlchemy) e sessões
+│   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
 │   ├── categorias.py                   # Categorias padrão + criadas (RepositorioCategorias)
 │   ├── dados/categorias.json           # Categorias criadas pelo agent (gerado; fora do git)
 │   ├── agents/
@@ -256,7 +258,7 @@ Se os serviços forem criados à mão no painel do Render, use os mesmos valores
 | Build Command | `pip install -r requirements.txt` |
 | Start Command | `cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT` |
 | Health Check Path | `/health` |
-| Variáveis | `FRONTEND_URL` e, opcionalmente, `GEMINI_MODEL`, `SYSFINAN_USUARIO`, `SYSFINAN_SENHA` |
+| Variáveis | `DATABASE_URL`, `FRONTEND_URL` e, opcionalmente, `GEMINI_MODEL`, `SYSFINAN_USUARIO`, `SYSFINAN_SENHA` |
 
 **Frontend — Static Site**
 
@@ -280,6 +282,26 @@ Erros comuns ao iniciar a API:
 
 ---
 
+## Configurar o banco (MySQL)
+
+A API precisa de um **MySQL Server 8** (o Workbench é só o cliente):
+
+1. Instale o servidor pelo **MySQL Installer for Windows**
+   (<https://dev.mysql.com/downloads/installer/>): *MySQL Server 8.x*, Standalone, porta
+   `3306`, *Use Strong Password Encryption*, defina a senha do `root` e deixe rodando como
+   serviço do Windows (`MySQL80`).
+2. No **MySQL Workbench**, crie uma conexão em `localhost:3306` com o usuário `root`, abra
+   `backend/sql/criar_banco.sql`, troque a senha de exemplo e execute (⚡). O script cria o
+   schema `sysfinan` (utf8mb4) e o usuário `sysfinan`, com acesso só a esse schema.
+3. Em `backend/.env`, informe a conexão:
+
+   ```
+   DATABASE_URL=mysql+pymysql://sysfinan:<senha>@localhost:3306/sysfinan?charset=utf8mb4
+   ```
+
+As tabelas são criadas pela própria API ao subir (`banco.criar_tabelas`), sem script manual.
+Para ver o diagrama no Workbench: *Database → Reverse Engineer* no schema `sysfinan`.
+
 ## Como executar o back-end
 
 ```bash
@@ -300,6 +322,7 @@ Variáveis de ambiente:
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
+| `DATABASE_URL` | Conexão com o banco (ver "Configurar o banco"). Obrigatória: sem ela a API não sobe | — |
 | `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula, na frente da cadeia padrão. Deixe vazio para usar só a cadeia padrão | `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-3.5-flash` |
 | `SYSFINAN_USUARIO` | Usuário do login | `admin` |
 | `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
