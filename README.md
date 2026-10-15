@@ -199,6 +199,8 @@ SysFinan/
 │   ├── crud.py                         # Listar/buscar, inativar e reativar (comum aos cadastros)
 │   ├── pessoas.py                      # Manter Pessoas: rotas /pessoas
 │   ├── classificacoes.py               # Manter Classificação: rotas /classificacoes
+│   ├── contas.py                       # Registrar Contas a pagar/receber: rotas /contas
+│   ├── erros.py                        # Erros de validação (422) em português
 │   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
 │   ├── categorias.py                   # Categorias de despesa do agent (RepositorioCategorias)
 │   ├── agents/
@@ -388,6 +390,12 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `PUT` | `/classificacoes/{id}` | Mesmo JSON do `POST` | Classificação editada (o status não muda) |
 | `DELETE` | `/classificacoes/{id}` | — | Classificação INATIVA (exclusão lógica) |
 | `PUT` | `/classificacoes/{id}/reativar` | — | Classificação ATIVA de novo |
+| `GET` | `/contas` | Query `busca`, `tipo` (APAGAR/ARECEBER), `status`, `ordem`, `direcao` | Contas com pessoas, classificações e parcelas (sem `status`, só as ATIVAS) |
+| `GET` | `/contas/{id}` | — | Conta |
+| `POST` | `/contas` | JSON abaixo | Conta registrada, sempre ATIVA (`201`); `422` se quebrar alguma regra |
+| `PUT` | `/contas/{id}` | Mesmo JSON do `POST` | Conta editada: substitui classificações e parcelas (o status não muda) |
+| `DELETE` | `/contas/{id}` | — | Conta INATIVA (exclusão lógica) |
+| `PUT` | `/contas/{id}/reativar` | — | Conta ATIVA de novo |
 
 **Cadastros** (`/pessoas` e os próximos) seguem o mesmo padrão, em `backend/crud.py`:
 
@@ -397,6 +405,32 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 - **Ordenação por coluna:** `ordem=<campo>` e `direcao=asc|desc`.
 - **Status nunca vem do formulário:** o `POST` grava ATIVO e o `PUT` não o altera; só o
   `DELETE` (inativa) e o `/reativar` mexem nele.
+
+**Registrar conta** (`POST /contas`):
+
+```json
+{
+  "tipo": "APAGAR",
+  "numeroNotaFiscal": "000.084.682",
+  "dataEmissao": "2025-09-19",
+  "descricao": "GRAXA DE POLIUREIA MP SD 400G; KIT DA BUCHA",
+  "valorTotal": 3086.75,
+  "idFornecedorCliente": 1,
+  "idFaturado": 2,
+  "idClassificacoes": [2],
+  "parcelas": [{ "dataVencimento": "2025-10-17", "valorParcela": 3086.75 }]
+}
+```
+
+- Conta a pagar: `idFornecedorCliente` é um FORNECEDOR e as classificações são DESPESAS.
+  Conta a receber: um CLIENTE e RECEITAS. `idFaturado` é sempre um FATURADO.
+- Uma ou mais classificações e uma ou mais parcelas, com **datas de vencimento distintas**.
+- A soma das parcelas precisa ser igual ao `valorTotal`.
+- A `identificacao` da parcela é gerada: `ÚNICA` quando há uma; `1/3`, `2/3`, `3/3`... em ordem
+  de vencimento quando há mais.
+
+Erros de validação (`422`) vêm em português, num texto só em `detail`, com o campo e o
+problema — ex.: `"parcelas nº 1 › valorParcela: use no máximo 2 casas decimais"`.
 
 `dados` só vem preenchido quando todas as etapas são aprovadas; `etapas` traz, para cada uma,
 o status (`concluida`, `falhou`, `nao_executada`), as tentativas, o modelo usado, os problemas e

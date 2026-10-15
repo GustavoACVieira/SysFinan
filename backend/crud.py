@@ -3,7 +3,7 @@
 from typing import Literal, TypeVar
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from banco import Base
@@ -23,12 +23,16 @@ def listar(
     ordem: InstrumentedAttribute,
     direcao: Direcao,
     filtros: list = (),
+    consulta: Select | None = None,
 ) -> list[Registro]:
     """Sem status informado traz so os ATIVOS (o "TODOS" da tela).
 
     A busca aceita mais de um termo: cada termo precisa aparecer em algum dos campos.
+    `consulta` permite partir de um select com joins, para buscar em outra tabela.
     """
-    consulta = select(modelo).where(modelo.status == (status or Status.ATIVO), *filtros)
+    consulta = (consulta if consulta is not None else select(modelo)).where(
+        modelo.status == (status or Status.ATIVO), *filtros
+    )
     for termo in (busca or "").split():
         consulta = consulta.where(or_(*(c.icontains(termo, autoescape=True) for c in campos_busca)))
     return list(sessao.scalars(consulta.order_by(ordem.desc() if direcao == "desc" else ordem)))

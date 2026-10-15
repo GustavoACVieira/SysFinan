@@ -12,6 +12,7 @@ import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import errors as genai_errors
 from pydantic import BaseModel
@@ -20,6 +21,8 @@ load_dotenv(Path(__file__).with_name(".env"))
 
 import categorias  # noqa: E402
 import classificacoes  # noqa: E402
+import contas  # noqa: E402
+import erros  # noqa: E402
 import pessoas  # noqa: E402
 from banco import criar_tabelas  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
@@ -60,8 +63,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_exception_handler(RequestValidationError, erros.tratar_validacao)
+
 app.include_router(pessoas.router)
 app.include_router(classificacoes.router)
+app.include_router(contas.router)
 
 agent1 = Agent1()
 _chave_verificada_em: str | None = None
