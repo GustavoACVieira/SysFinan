@@ -126,24 +126,23 @@ compra de material hidráulico → `INFRAESTRUTURA E UTILIDADES`.
 
 ### Categorias criadas pelo agent
 
-Além das 9 categorias padrão (fixas), o agent pode **criar uma categoria nova** — como exceção,
-quando nenhuma categoria ativa representa a despesa. A partir daí ela vale para as próximas
-notas: entra na lista enviada ao Gemini e no prompt, com a descrição que o agent escreveu.
+As categorias são as classificações do tipo `DESPESA` em `C002_CLASSIFICACAO`: as 9 padrão
+entram no banco na primeira subida e o agent usa as que estiverem ativas. Além delas, o agent
+pode **criar uma categoria nova** — como exceção, quando nenhuma categoria ativa representa a
+despesa. A partir daí ela vale para as próximas notas e entra na lista enviada ao Gemini
+(no prompt, as 9 padrão vão com exemplos; as criadas, só com o nome).
 
-- **Onde fica:** `backend/dados/categorias.json` (fora do git). Todo acesso passa por
-  `RepositorioCategorias` (`backend/categorias.py`); na migração para o MySQL, só ele muda.
+- **Onde fica:** no banco. Todo acesso do agent passa por `RepositorioCategorias`
+  (`backend/categorias.py`).
 - **Só com a nota aprovada:** a categoria é salva quando a extração inteira conclui; uma extração
   que falhou não deixa categoria para trás.
 - **Sem duplicatas:** nomes são comparados sem acento, pontuação ou plural — "Combustíveis",
   "COMBUSTIVEL" e "combustível" são a mesma categoria, e a existente é reaproveitada.
 - **Por cautela:** se o agent já enquadrou a nota em alguma categoria existente, uma sugestão de
   categoria nova é descartada (e registrada como aviso).
-- **Inativar/reativar:** na janela **Categorias** (cabeçalho), o admin inativa as criadas que não
-  quer ver em uso — seguindo a regra de que cadastros não se excluem. Uma categoria inativa sai
-  das opções do agent e **não pode ser recriada** por ele. As 9 padrão não podem ser inativadas.
-
-> No Render gratuito o disco é temporário: as categorias criadas somem a cada deploy ou
-> reinício. Isso se resolve com a migração prevista para o MySQL.
+- **Inativar/reativar:** pela janela **Categorias** (cabeçalho) ou pelas rotas `/classificacoes`
+  — seguindo a regra de que cadastros não se excluem. Uma categoria inativa, padrão ou criada,
+  sai das opções do agent e **não pode ser recriada** por ele.
 
 ### Formato do JSON retornado
 
@@ -199,9 +198,9 @@ SysFinan/
 │   ├── tabelas.py                      # Tabelas do banco e seed das categorias padrão
 │   ├── crud.py                         # Listar/buscar, inativar e reativar (comum aos cadastros)
 │   ├── pessoas.py                      # Manter Pessoas: rotas /pessoas
+│   ├── classificacoes.py               # Manter Classificação: rotas /classificacoes
 │   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
-│   ├── categorias.py                   # Categorias padrão + criadas (RepositorioCategorias)
-│   ├── dados/categorias.json           # Categorias criadas pelo agent (gerado; fora do git)
+│   ├── categorias.py                   # Categorias de despesa do agent (RepositorioCategorias)
 │   ├── agents/
 │   │   └── agent1/
 │   │       ├── __init__.py
@@ -374,8 +373,8 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
 | `PUT` | `/chave-api` | JSON `{ "chave" }` | Confere a chave no Google (sem gastar cota) e só então a ativa, em memória. `400` se o Google recusar, `503` se não der para verificar |
 | `DELETE` | `/chave-api` | — | situação da chave |
-| `GET` | `/categorias` | — | Lista de categorias (padrão e criadas, ativas e inativas) |
-| `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa uma criada) |
+| `GET` | `/categorias` | — | Categorias de despesa (padrão e criadas, ativas e inativas), para a janela Categorias |
+| `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa) |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
 | `GET` | `/pessoas` | Query `busca`, `tipo`, `status`, `ordem`, `direcao` | Lista de pessoas (sem `status`, só as ATIVAS) |
 | `GET` | `/pessoas/{id}` | — | Pessoa |
@@ -383,6 +382,12 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `PUT` | `/pessoas/{id}` | Mesmo JSON do `POST` | Pessoa editada (o status não muda) |
 | `DELETE` | `/pessoas/{id}` | — | Pessoa INATIVA (exclusão lógica) |
 | `PUT` | `/pessoas/{id}/reativar` | — | Pessoa ATIVA de novo |
+| `GET` | `/classificacoes` | Query `busca`, `tipo`, `status`, `ordem`, `direcao` | Lista de classificações (sem `status`, só as ATIVAS) |
+| `GET` | `/classificacoes/{id}` | — | Classificação |
+| `POST` | `/classificacoes` | JSON `{ "tipo", "descricao" }` | Classificação criada, sempre ATIVA (`201`); `409` se já existe uma equivalente do mesmo tipo |
+| `PUT` | `/classificacoes/{id}` | Mesmo JSON do `POST` | Classificação editada (o status não muda) |
+| `DELETE` | `/classificacoes/{id}` | — | Classificação INATIVA (exclusão lógica) |
+| `PUT` | `/classificacoes/{id}/reativar` | — | Classificação ATIVA de novo |
 
 **Cadastros** (`/pessoas` e os próximos) seguem o mesmo padrão, em `backend/crud.py`:
 

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 load_dotenv(Path(__file__).with_name(".env"))
 
 import categorias  # noqa: E402
+import classificacoes  # noqa: E402
 import pessoas  # noqa: E402
 from banco import criar_tabelas  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
@@ -60,6 +61,7 @@ app.add_middleware(
 )
 
 app.include_router(pessoas.router)
+app.include_router(classificacoes.router)
 
 agent1 = Agent1()
 _chave_verificada_em: str | None = None
@@ -173,8 +175,6 @@ def listar_categorias() -> list[Categoria]:
 def alterar_situacao_categoria(situacao: SituacaoCategoria) -> Categoria:
     try:
         return categorias.repositorio.definir_ativa(situacao.nome, situacao.ativa)
-    except ValueError as erro:
-        raise HTTPException(status_code=400, detail=str(erro)) from erro
     except KeyError as erro:
         raise HTTPException(status_code=404, detail="Categoria não encontrada.") from erro
 

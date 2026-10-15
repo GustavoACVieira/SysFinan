@@ -1,18 +1,18 @@
-"""Categorias de despesa: as 9 padrao (fixas) e as criadas pelo agent.
+"""Categorias de despesa: as classificacoes do tipo DESPESA (C002_CLASSIFICACAO).
 
-As criadas ficam em backend/dados/categorias.json por enquanto; na migracao para
-o MySQL, so o RepositorioCategorias muda.
+As 9 padrao entram no banco na primeira subida (tabelas.semear); o agent usa as ativas
+na classificacao e pode criar outras. Todo acesso do agent passa pelo RepositorioCategorias.
 """
 
-import json
-import os
 import re
-import threading
 import unicodedata
-from datetime import datetime, timezone
-from pathlib import Path
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from banco import SessionLocal
 from models import Categoria, CategoriaDespesa
+from tabelas import Classificacao, Status, TipoClassificacao
 
 EXEMPLOS_PADRAO = {
     CategoriaDespesa.INSUMOS_AGRICOLAS: "sementes, fertilizantes, defensivos agrícolas, corretivos",
@@ -78,81 +78,71 @@ def _singular(palavra: str) -> str:
     return palavra
 
 
+def buscar_equivalente(
+    sessao: Session, tipo: TipoClassificacao, descricao: str
+) -> Classificacao | None:
+    """Classificacao do tipo com o mesmo nome, ignorando acento, pontuacao e plural."""
+    procurada = chave(descricao)
+    candidatas = sessao.scalars(select(Classificacao).where(Classificacao.tipo == tipo))
+    return next((c for c in candidatas if chave(c.descricao) == procurada), None)
+
+
 class RepositorioCategorias:
 
-    def __init__(self, caminho: Path):
-        self._caminho = caminho
-        self._trava = threading.Lock()
-
-    # --- persistencia ------------------------------------------------------
-
-    def _ler_criadas(self) -> list[Categoria]:
-        if not self._caminho.exists():
-            return []
-        dados = json.loads(self._caminho.read_text(encoding="utf-8"))
-        return [Categoria.model_validate(item) for item in dados]
-
-    def _gravar_criadas(self, criadas: list[Categoria]) -> None:
-        self._caminho.parent.mkdir(parents=True, exist_ok=True)
-        temporario = self._caminho.with_suffix(".tmp")
-        conteudo = [c.model_dump(mode="json") for c in criadas]
-        temporario.write_text(json.dumps(conteudo, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temporario, self._caminho)
+    @staticmethod
+    def _categoria(classificacao: Classificacao) -> Categoria:
+        return Categoria(
+            nome=classificacao.descricao,
+            descricao=EXEMPLOS_PADRAO.get(classificacao.descricao, ""),
+            padrao=classificacao.descricao in EXEMPLOS_PADRAO,
+            ativa=classificacao.status is Status.ATIVO,
+        )
 
     # --- consultas -----------------------------------------------------------
 
-    @staticmethod
-    def padrao() -> list[Categoria]:
-        return [
-            Categoria(nome=c.value, descricao=EXEMPLOS_PADRAO[c], padrao=True, ativa=True)
-            for c in CategoriaDespesa
-        ]
-
     def listar(self) -> list[Categoria]:
-        with self._trava:
-            return self.padrao() + self._ler_criadas()
+        with SessionLocal() as sessao:
+            despesas = sessao.scalars(
+                select(Classificacao)
+                .where(Classificacao.tipo == TipoClassificacao.DESPESA)
+                .order_by(Classificacao.idClassificacao)
+            )
+            return [self._categoria(c) for c in despesas]
 
     def ativas(self) -> list[Categoria]:
         return [c for c in self.listar() if c.ativa]
 
     def buscar(self, nome: str) -> Categoria | None:
-        procurada = chave(nome)
-        return next((c for c in self.listar() if chave(c.nome) == procurada), None)
+        with SessionLocal() as sessao:
+            existente = buscar_equivalente(sessao, TipoClassificacao.DESPESA, nome)
+            return self._categoria(existente) if existente else None
 
     # --- alteracoes ----------------------------------------------------------
 
     def criar(self, nome: str, descricao: str, nota_origem: str | None = None) -> Categoria:
         """Cria a categoria; se ja existir uma equivalente, devolve a existente."""
         nome = formatar_nome(nome)
-        with self._trava:
-            criadas = self._ler_criadas()
-            procurada = chave(nome)
-            for existente in self.padrao() + criadas:
-                if chave(existente.nome) == procurada:
-                    return existente
-            nova = Categoria(
-                nome=nome,
-                descricao=descricao.strip(),
-                padrao=False,
-                ativa=True,
-                criadaEm=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                notaOrigem=nota_origem,
+        with SessionLocal() as sessao:
+            existente = buscar_equivalente(sessao, TipoClassificacao.DESPESA, nome)
+            if existente is not None:
+                return self._categoria(existente)
+            sessao.add(
+                Classificacao(tipo=TipoClassificacao.DESPESA, descricao=nome, status=Status.ATIVO)
             )
-            self._gravar_criadas(criadas + [nova])
-            return nova
+            sessao.commit()
+        # A descricao escrita pelo agent so volta na resposta da extracao (nao ha coluna para ela).
+        return Categoria(
+            nome=nome, descricao=descricao.strip(), padrao=False, ativa=True, notaOrigem=nota_origem
+        )
 
     def definir_ativa(self, nome: str, ativa: bool) -> Categoria:
-        procurada = chave(nome)
-        if any(chave(c.nome) == procurada for c in self.padrao()):
-            raise ValueError("As categorias padrão não podem ser inativadas.")
-        with self._trava:
-            criadas = self._ler_criadas()
-            for categoria in criadas:
-                if chave(categoria.nome) == procurada:
-                    categoria.ativa = ativa
-                    self._gravar_criadas(criadas)
-                    return categoria
-        raise KeyError(nome)
+        with SessionLocal() as sessao:
+            existente = buscar_equivalente(sessao, TipoClassificacao.DESPESA, nome)
+            if existente is None:
+                raise KeyError(nome)
+            existente.status = Status.ATIVO if ativa else Status.INATIVO
+            sessao.commit()
+            return self._categoria(existente)
 
 
-repositorio = RepositorioCategorias(Path(__file__).with_name("dados") / "categorias.json")
+repositorio = RepositorioCategorias()

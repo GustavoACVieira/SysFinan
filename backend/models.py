@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class CategoriaDespesa(str, Enum):
-    """As 9 categorias padrao. O agent pode criar outras (ver categorias.py)."""
+    """As 9 categorias padrao (seed de C002_CLASSIFICACAO). O agent pode criar outras."""
 
     INSUMOS_AGRICOLAS = "INSUMOS AGRÍCOLAS"
     MANUTENCAO_E_OPERACAO = "MANUTENÇÃO E OPERAÇÃO"
@@ -139,7 +139,7 @@ class VerificacaoEtapa(BaseModel):
 class Categoria(BaseModel):
     nome: str
     descricao: str
-    padrao: bool = Field(description="true para as 9 categorias fixas do sistema")
+    padrao: bool = Field(description="true para as 9 categorias padrao do sistema")
     ativa: bool = True
     criadaEm: str | None = None
     notaOrigem: str | None = Field(

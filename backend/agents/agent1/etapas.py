@@ -101,7 +101,9 @@ Exemplos:
 def instrucao_classificacao() -> str:
     ativas = categorias.repositorio.ativas()
     return INSTRUCAO_CLASSIFICACAO.format(
-        categorias="\n".join(f"- {c.nome}: {c.descricao}" for c in ativas)
+        categorias="\n".join(
+            f"- {c.nome}: {c.descricao}" if c.descricao else f"- {c.nome}" for c in ativas
+        )
     )
 
 

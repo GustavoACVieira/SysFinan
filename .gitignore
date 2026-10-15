@@ -28,8 +28,6 @@ env/
 .env.*
 
 # ---------- Uploads / arquivos temporarios ----------
-# Categorias criadas pelo agent (dado de execucao; futuramente no MySQL)
-backend/dados/
 uploads/
 tmp/
 *.tmp
