@@ -197,6 +197,8 @@ SysFinan/
 │   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
 │   ├── banco.py                        # Conexão com o MySQL (SQLAlchemy) e sessões
 │   ├── tabelas.py                      # Tabelas do banco e seed das categorias padrão
+│   ├── crud.py                         # Listar/buscar, inativar e reativar (comum aos cadastros)
+│   ├── pessoas.py                      # Manter Pessoas: rotas /pessoas
 │   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
 │   ├── categorias.py                   # Categorias padrão + criadas (RepositorioCategorias)
 │   ├── dados/categorias.json           # Categorias criadas pelo agent (gerado; fora do git)
@@ -375,6 +377,21 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `GET` | `/categorias` | — | Lista de categorias (padrão e criadas, ativas e inativas) |
 | `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa uma criada) |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
+| `GET` | `/pessoas` | Query `busca`, `tipo`, `status`, `ordem`, `direcao` | Lista de pessoas (sem `status`, só as ATIVAS) |
+| `GET` | `/pessoas/{id}` | — | Pessoa |
+| `POST` | `/pessoas` | JSON `{ "tipo", "razaoSocial", "fantasia", "documento" }` | Pessoa criada, sempre ATIVA (`201`); `409` se o documento já existe para o tipo |
+| `PUT` | `/pessoas/{id}` | Mesmo JSON do `POST` | Pessoa editada (o status não muda) |
+| `DELETE` | `/pessoas/{id}` | — | Pessoa INATIVA (exclusão lógica) |
+| `PUT` | `/pessoas/{id}/reativar` | — | Pessoa ATIVA de novo |
+
+**Cadastros** (`/pessoas` e os próximos) seguem o mesmo padrão, em `backend/crud.py`:
+
+- **Busca por mais de um termo:** `busca=iguacu maquinas` traz quem tem os dois termos, cada um
+  em qualquer dos campos pesquisados. CPF/CNPJ pode ser digitado com ou sem máscara.
+- **TODOS:** sem `status`, a lista traz só os ATIVOS; `status=INATIVO` mostra os inativos.
+- **Ordenação por coluna:** `ordem=<campo>` e `direcao=asc|desc`.
+- **Status nunca vem do formulário:** o `POST` grava ATIVO e o `PUT` não o altera; só o
+  `DELETE` (inativa) e o `/reativar` mexem nele.
 
 `dados` só vem preenchido quando todas as etapas são aprovadas; `etapas` traz, para cada uma,
 o status (`concluida`, `falhou`, `nao_executada`), as tentativas, o modelo usado, os problemas e

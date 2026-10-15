@@ -19,6 +19,7 @@ from pydantic import BaseModel
 load_dotenv(Path(__file__).with_name(".env"))
 
 import categorias  # noqa: E402
+import pessoas  # noqa: E402
 from banco import criar_tabelas  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
     Agent1,
@@ -57,6 +58,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+app.include_router(pessoas.router)
 
 agent1 = Agent1()
 _chave_verificada_em: str | None = None
