@@ -196,6 +196,7 @@ SysFinan/
 │   ├── models.py                       # Esquemas Pydantic: etapas, nota completa e verificação
 │   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
 │   ├── banco.py                        # Conexão com o MySQL (SQLAlchemy) e sessões
+│   ├── tabelas.py                      # Tabelas do banco e seed das categorias padrão
 │   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
 │   ├── categorias.py                   # Categorias padrão + criadas (RepositorioCategorias)
 │   ├── dados/categorias.json           # Categorias criadas pelo agent (gerado; fora do git)
@@ -301,6 +302,35 @@ A API precisa de um **MySQL Server 8** (o Workbench é só o cliente):
 
 As tabelas são criadas pela própria API ao subir (`banco.criar_tabelas`), sem script manual.
 Para ver o diagrama no Workbench: *Database → Reverse Engineer* no schema `sysfinan`.
+
+### Tabelas
+
+Definidas em `backend/tabelas.py`. Padrão de nomes, cada prefixo com sua própria contagem:
+
+| Prefixo | Uso |
+|---------|-----|
+| `Exxx` | Domínio: valores fixos de um tipo ou status |
+| `Cxxx` | Cadastro |
+| `Txxx` | Transação |
+| `Rxxx_<tabela>_<tabela>` | Relacionamento N:N entre as duas tabelas do nome |
+
+| Tabela | Campos |
+|--------|--------|
+| `E001_TIPO_PESSOA` | `idTipoPessoa`, `descricao`: 1 CLIENTE, 2 FORNECEDOR, 3 FATURADO |
+| `E002_TIPO_CLASSIFICACAO` | `idTipoClassificacao`, `descricao`: 1 RECEITA, 2 DESPESA |
+| `E003_TIPO_MOVIMENTO` | `idTipoMovimento`, `descricao`: 1 APAGAR, 2 ARECEBER |
+| `E004_STATUS` | `idStatus`, `descricao`: 1 ATIVO, 2 INATIVO |
+| `C001_PESSOAS` | `idPessoas`, `idTipoPessoa`, `razaoSocial`, `fantasia`, `documento` (CNPJ/CPF), `idStatus` |
+| `C002_CLASSIFICACAO` | `idClassificacao`, `idTipoClassificacao`, `descricao`, `idStatus` |
+| `T001_MOVIMENTOCONTAS` | `idMovimentoContas`, `idTipoMovimento`, `numeroNotaFiscal`, `dataEmissao`, `descricao`, `valorTotal`, `idFornecedorCliente`, `idFaturado`, `idStatus` |
+| `T002_PARCELACONTAS` | `idParcelaContas`, `idMovimentoContas`, `identificacao` (ÚNICA, 1/3...), `dataVencimento`, `valorParcela` — vencimentos distintos por movimento |
+| `R001_T001_C002` | `idMovimentoContas`, `idClassificacao` — um movimento em um ou mais tipos de despesa/receita |
+
+Cadastros não são excluídos: o `idStatus` passa para INATIVO. Ao subir, a API grava os valores
+dos domínios e, na primeira vez, as 9 categorias padrão em `C002_CLASSIFICACAO` como `DESPESA`.
+
+> No Windows, o MySQL guarda os nomes das tabelas em minúsculas (`lower_case_table_names=1`),
+> então o Workbench mostra `c001_pessoas`. No Linux (hospedagem) ficam como definidos.
 
 ## Como executar o back-end
 

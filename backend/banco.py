@@ -33,5 +33,9 @@ def obter_sessao() -> Iterator[Session]:
 
 
 def criar_tabelas() -> None:
-    """Cria as tabelas que ainda nao existem (chamado ao subir a API)."""
+    """Cria as tabelas que ainda nao existem e o seed (chamado ao subir a API)."""
+    import tabelas  # registra as tabelas no Base (importa banco, por isso fica aqui)
+
     Base.metadata.create_all(engine)
+    with SessionLocal() as sessao:
+        tabelas.semear(sessao)
