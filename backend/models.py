@@ -157,6 +157,7 @@ class ResultadoExtracao(BaseModel):
     etapas: list[VerificacaoEtapa]
     dados: NotaFiscalExtraida | None = None
     categoriaCriada: Categoria | None = Field(
-        default=None, description="Categoria que o agent criou nesta extracao, se criou"
+        default=None,
+        description="Categoria nova sugerida pelo agent; e criada no banco ao lancar a nota",
     )
 

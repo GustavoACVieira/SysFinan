@@ -34,7 +34,7 @@ A avaliação N2 é dividida em duas etapas:
 
 ---
 
-## Etapa 1 (escopo atual)
+## Etapa 1 — extração
 
 Processador de PDF que utiliza um **Agent** (Gemini) para extrair os dados de uma nota fiscal
 (CONTAS A PAGAR) e devolver o resultado em **JSON**.
@@ -134,8 +134,9 @@ despesa. A partir daí ela vale para as próximas notas e entra na lista enviada
 
 - **Onde fica:** no banco. Todo acesso do agent passa por `RepositorioCategorias`
   (`backend/categorias.py`).
-- **Só com a nota aprovada:** a categoria é salva quando a extração inteira conclui; uma extração
-  que falhou não deixa categoria para trás.
+- **Só no lançamento:** a extração apenas **sugere** a categoria (em `categoriaCriada`); ela é
+  criada no banco quando a nota é lançada (2ª etapa). Extração que falhou ou não foi lançada não
+  deixa categoria para trás.
 - **Sem duplicatas:** nomes são comparados sem acento, pontuação ou plural — "Combustíveis",
   "COMBUSTIVEL" e "combustível" são a mesma categoria, e a existente é reaproveitada.
 - **Por cautela:** se o agent já enquadrou a nota em alguma categoria existente, uma sugestão de
@@ -175,6 +176,41 @@ despesa. A partir daí ela vale para as próximas notas e entra na lista enviada
 
 ---
 
+## Etapa 2 — análise e lançamento da nota
+
+Depois da extração, o JSON da nota (formato acima) é enviado para:
+
+1. **`POST /contas/analisar`** — consulta no banco e informa, para a tela:
+   - **FORNECEDOR**: procurado pelo CNPJ entre as pessoas do tipo FORNECEDOR;
+   - **FATURADO**: procurado pelo CPF entre as do tipo FATURADO (sem CPF na nota, pelo nome);
+   - **DESPESA**: cada classificação da nota, entre as do tipo DESPESA (sem acento/plural).
+
+   ```json
+   {
+     "fornecedor": { "razaoSocial": "IGUAÇU MAQUINAS LTDA", "documento": "11.111.111/0001-00", "existe": false, "id": null, "status": null },
+     "faturado": { "razaoSocial": "BELTRANO DA SILVA", "documento": "999.999.999-99", "existe": true, "id": 19, "status": "ATIVO" },
+     "despesas": [{ "descricao": "MANUTENÇÃO E OPERAÇÃO", "existe": true, "id": 22, "status": "ATIVO" }],
+     "contaJaLancada": null
+   }
+   ```
+
+   `status` mostra se o cadastro encontrado está INATIVO (não pode ser usado no lançamento) e
+   `contaJaLancada` traz o ID da conta, se esta nota deste fornecedor já foi lançada.
+
+2. **`POST /contas/lancar`** — numa transação só:
+   1. cria o FORNECEDOR, se não existir;
+   2. cria o FATURADO, se não existir;
+   3. cria as DESPESAS que não existirem;
+   4. cria o movimento (`T001_MOVIMENTOCONTAS`, tipo APAGAR) e suas parcelas
+      (`T002_PARCELACONTAS`, identificação `ÚNICA` quando há uma), ligado às despesas
+      (`R001_T001_C002`);
+   5. responde `{ "mensagem": "Registro lançado com sucesso.", "conta": { ... } }`.
+
+   A conta passa pelas mesmas regras do `POST /contas` (vencimentos distintos, soma das parcelas
+   igual ao total...). Se algo falhar, a resposta é `422` com o motivo e **nada** fica gravado.
+
+---
+
 ## Stack
 
 | Camada | Tecnologia |
@@ -201,6 +237,7 @@ SysFinan/
 │   ├── classificacoes.py               # Manter Classificação: rotas /classificacoes
 │   ├── contas.py                       # Registrar Contas a pagar/receber: rotas /contas
 │   ├── erros.py                        # Erros de validação (422) em português
+│   ├── lancamento.py                   # 2ª etapa: analisar e lançar a nota extraída
 │   ├── sql/criar_banco.sql             # Cria o schema e o usuário no MySQL (rodar no Workbench)
 │   ├── categorias.py                   # Categorias de despesa do agent (RepositorioCategorias)
 │   ├── agents/
@@ -396,6 +433,8 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
 | `PUT` | `/contas/{id}` | Mesmo JSON do `POST` | Conta editada: substitui classificações e parcelas (o status não muda) |
 | `DELETE` | `/contas/{id}` | — | Conta INATIVA (exclusão lógica) |
 | `PUT` | `/contas/{id}/reativar` | — | Conta ATIVA de novo |
+| `POST` | `/contas/analisar` | JSON da nota extraída | Fornecedor, faturado e despesas: `existe` e `id` de cada um (ver "Etapa 2") |
+| `POST` | `/contas/lancar` | JSON da nota extraída | Cria o que falta e lança a conta a pagar (`201`); `422` sem gravar nada se algo falhar |
 
 **Cadastros** (`/pessoas` e os próximos) seguem o mesmo padrão, em `backend/crud.py`:
 
@@ -426,6 +465,9 @@ ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
   Conta a receber: um CLIENTE e RECEITAS. `idFaturado` é sempre um FATURADO.
 - Uma ou mais classificações e uma ou mais parcelas, com **datas de vencimento distintas**.
 - A soma das parcelas precisa ser igual ao `valorTotal`.
+- Pessoas e classificações **INATIVAS não podem ser usadas** (`422`); reative o cadastro antes.
+- A mesma nota (`numeroNotaFiscal`) da mesma pessoa só pode ser registrada uma vez (`409`),
+  para não pagar ou cobrar em dobro.
 - A `identificacao` da parcela é gerada: `ÚNICA` quando há uma; `1/3`, `2/3`, `3/3`... em ordem
   de vencimento quando há mais.
 

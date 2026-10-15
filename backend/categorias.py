@@ -1,7 +1,8 @@
 """Categorias de despesa: as classificacoes do tipo DESPESA (C002_CLASSIFICACAO).
 
 As 9 padrao entram no banco na primeira subida (tabelas.semear); o agent usa as ativas
-na classificacao e pode criar outras. Todo acesso do agent passa pelo RepositorioCategorias.
+na classificacao e pode sugerir outras, criadas ao lancar a nota (lancamento.py).
+Todo acesso do agent passa pelo RepositorioCategorias.
 """
 
 import re
@@ -118,22 +119,6 @@ class RepositorioCategorias:
             return self._categoria(existente) if existente else None
 
     # --- alteracoes ----------------------------------------------------------
-
-    def criar(self, nome: str, descricao: str, nota_origem: str | None = None) -> Categoria:
-        """Cria a categoria; se ja existir uma equivalente, devolve a existente."""
-        nome = formatar_nome(nome)
-        with SessionLocal() as sessao:
-            existente = buscar_equivalente(sessao, TipoClassificacao.DESPESA, nome)
-            if existente is not None:
-                return self._categoria(existente)
-            sessao.add(
-                Classificacao(tipo=TipoClassificacao.DESPESA, descricao=nome, status=Status.ATIVO)
-            )
-            sessao.commit()
-        # A descricao escrita pelo agent so volta na resposta da extracao (nao ha coluna para ela).
-        return Categoria(
-            nome=nome, descricao=descricao.strip(), padrao=False, ativa=True, notaOrigem=nota_origem
-        )
 
     def definir_ativa(self, nome: str, ativa: bool) -> Categoria:
         with SessionLocal() as sessao:

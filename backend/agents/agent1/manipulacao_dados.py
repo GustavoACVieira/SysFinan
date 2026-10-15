@@ -20,7 +20,13 @@ from pydantic import ValidationError
 from pypdf import PdfReader
 
 import categorias
-from models import NotaFiscalExtraida, ResultadoExtracao, StatusEtapa, VerificacaoEtapa
+from models import (
+    Categoria,
+    NotaFiscalExtraida,
+    ResultadoExtracao,
+    StatusEtapa,
+    VerificacaoEtapa,
+)
 
 from .etapas import (
     ETAPAS,
@@ -189,14 +195,20 @@ class Agent1:
         if verificacao.status is not StatusEtapa.CONCLUIDA:
             return ResultadoExtracao(concluida=False, etapas=relatorio)
 
-        # So salva a categoria nova depois que a nota inteira foi aprovada.
-        criada = None
+        # A categoria nova so e sugerida aqui; ela e criada no banco ao lancar a nota.
+        sugerida = None
         if proposta := contexto.get("novaCategoria"):
-            criada = categorias.repositorio.criar(
-                proposta["nome"], proposta["descricao"], nota_origem=nota.numeroNotaFiscal
+            sugerida = Categoria(
+                nome=proposta["nome"],
+                descricao=proposta["descricao"],
+                padrao=False,
+                ativa=True,
+                notaOrigem=nota.numeroNotaFiscal,
             )
-            logger.info("Categoria criada pelo agent: %s", criada.nome)
-        return ResultadoExtracao(concluida=True, etapas=relatorio, dados=nota, categoriaCriada=criada)
+            logger.info("Categoria sugerida pelo agent: %s", sugerida.nome)
+        return ResultadoExtracao(
+            concluida=True, etapas=relatorio, dados=nota, categoriaCriada=sugerida
+        )
 
     def _executar_etapa(
         self, etapa: Etapa, pdf: types.Part, contexto: Contexto

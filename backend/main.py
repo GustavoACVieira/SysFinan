@@ -23,6 +23,7 @@ import categorias  # noqa: E402
 import classificacoes  # noqa: E402
 import contas  # noqa: E402
 import erros  # noqa: E402
+import lancamento  # noqa: E402
 import pessoas  # noqa: E402
 from banco import criar_tabelas  # noqa: E402
 from agents.agent1.manipulacao_dados import (  # noqa: E402
@@ -67,6 +68,7 @@ app.add_exception_handler(RequestValidationError, erros.tratar_validacao)
 
 app.include_router(pessoas.router)
 app.include_router(classificacoes.router)
+app.include_router(lancamento.router)
 app.include_router(contas.router)
 
 agent1 = Agent1()

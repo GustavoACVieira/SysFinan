@@ -148,8 +148,8 @@ export default function Extracao({
           {resultado?.categoriaCriada && (
             <div className="categoria-criada">
               <p>
-                O agent criou a categoria <strong>{resultado.categoriaCriada.nome}</strong>:{' '}
-                {resultado.categoriaCriada.descricao}
+                O agent sugeriu a categoria <strong>{resultado.categoriaCriada.nome}</strong>:{' '}
+                {resultado.categoriaCriada.descricao.replace(/\.$/, '')}. Ela será criada ao lançar a nota.
               </p>
               <button type="button" className="botao-link" onClick={aoVerCategorias}>
                 Ver categorias

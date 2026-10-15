@@ -4,7 +4,9 @@ Regras:
 - conta a pagar: uma ou mais classificacoes do tipo DESPESA;
 - conta a receber: uma ou mais classificacoes do tipo RECEITA;
 - uma ou mais parcelas, com datas de vencimento distintas;
-- a soma das parcelas e igual ao valor total.
+- a soma das parcelas e igual ao valor total;
+- pessoas e classificacoes INATIVAS nao podem ser usadas;
+- a mesma nota da mesma pessoa so pode ser registrada uma vez.
 """
 
 from datetime import date
@@ -141,6 +143,14 @@ def _pessoa(sessao: Session, id_pessoa: int, tipo: TipoPessoa, papel: str) -> Pe
             status_code=422,
             detail=f"{papel}: a pessoa ID {id_pessoa} é {pessoa.tipo.value}, e não {tipo.value}.",
         )
+    if pessoa.status is Status.INATIVO:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{papel}: {pessoa.razaoSocial} (ID {id_pessoa}) está INATIVO. "
+                "Reative o cadastro para usá-lo."
+            ),
+        )
     return pessoa
 
 
@@ -164,11 +174,44 @@ def _classificacoes(
                 + "."
             ),
         )
+    if inativas := [c for c in encontradas.values() if c.status is Status.INATIVO]:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Classificação INATIVA: "
+                + ", ".join(f"{c.descricao} (ID {c.idClassificacao})" for c in inativas)
+                + ". Reative o cadastro para usá-la."
+            ),
+        )
     return [encontradas[i] for i in ids]
 
 
-def _preencher(sessao: Session, conta: MovimentoContas, dados: ContaEntrada) -> None:
+def buscar_nota(
+    sessao: Session, tipo: TipoMovimento, id_fornecedor_cliente: int, numero: str
+) -> MovimentoContas | None:
+    """Conta (ativa ou inativa) ja registrada com a mesma nota da mesma pessoa."""
+    return sessao.scalar(
+        select(MovimentoContas).where(
+            MovimentoContas.tipo == tipo,
+            MovimentoContas.idFornecedorCliente == id_fornecedor_cliente,
+            MovimentoContas.numeroNotaFiscal == numero,
+        )
+    )
+
+
+def preencher(sessao: Session, conta: MovimentoContas, dados: ContaEntrada) -> None:
     """Valida as referencias e copia os dados para a conta (sem mexer no status)."""
+    if dados.numeroNotaFiscal:
+        # A mesma nota lancada duas vezes seria paga (ou cobrada) em dobro.
+        existente = buscar_nota(sessao, dados.tipo, dados.idFornecedorCliente, dados.numeroNotaFiscal)
+        if existente is not None and existente is not conta:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A nota {dados.numeroNotaFiscal} desta pessoa já foi registrada "
+                    f"(conta ID {existente.idMovimentoContas}, {existente.status.value})."
+                ),
+            )
     conta.fornecedorCliente = _pessoa(
         sessao, dados.idFornecedorCliente, PESSOA_DO_TIPO[dados.tipo], "Fornecedor/Cliente"
     )
@@ -243,7 +286,7 @@ def obter_conta(id_conta: int, sessao: Session = Depends(obter_sessao)) -> Movim
 @router.post("", response_model=ContaSaida, status_code=201)
 def registrar_conta(dados: ContaEntrada, sessao: Session = Depends(obter_sessao)) -> MovimentoContas:
     conta = MovimentoContas(status=Status.ATIVO)
-    _preencher(sessao, conta, dados)
+    preencher(sessao, conta, dados)
     sessao.add(conta)
     sessao.commit()
     return conta
@@ -255,7 +298,7 @@ def editar_conta(
 ) -> MovimentoContas:
     """Substitui os dados, as classificações e as parcelas da conta."""
     conta = crud.obter(sessao, MovimentoContas, id_conta, NAO_ENCONTRADA)
-    _preencher(sessao, conta, dados)
+    preencher(sessao, conta, dados)
     sessao.commit()
     return conta
 
