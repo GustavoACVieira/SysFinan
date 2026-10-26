@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AnaliseNota from './AnaliseNota'
 import { extrairDados, SessaoExpirada } from './api'
 // import Etapas from './Etapas'
 import type { ResultadoExtracao } from './types'
@@ -6,7 +7,7 @@ import type { ResultadoExtracao } from './types'
 interface Props {
   chaveInformada: boolean
   aoInformarChave: () => void
-  aoVerCategorias: () => void
+  aoVerConta: (numeroNotaFiscal: string | null) => void
   aoExpirarSessao: () => void
 }
 
@@ -18,11 +19,13 @@ function formatarTamanho(bytes: number): string {
 export default function Extracao({
   chaveInformada,
   aoInformarChave,
-  aoVerCategorias,
+  aoVerConta,
   aoExpirarSessao,
 }: Props) {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [resultado, setResultado] = useState<ResultadoExtracao | null>(null)
+  // Cada extração tem a sua análise: muda a key do AnaliseNota.
+  const [extracoes, setExtracoes] = useState(0)
   const [erro, setErro] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [copiado, setCopiado] = useState(false)
@@ -42,6 +45,7 @@ export default function Extracao({
 
     try {
       setResultado(await extrairDados(arquivo))
+      setExtracoes((n) => n + 1)
     } catch (e) {
       if (e instanceof SessaoExpirada) return aoExpirarSessao()
       setErro(e instanceof Error ? e.message : 'Erro inesperado na extração')
@@ -137,25 +141,23 @@ export default function Extracao({
       */}
 
       {dados && (
+        <AnaliseNota
+          key={extracoes}
+          nota={dados}
+          categoriaSugerida={resultado?.categoriaCriada ?? null}
+          aoVerConta={aoVerConta}
+          aoExpirarSessao={aoExpirarSessao}
+        />
+      )}
+
+      {dados && (
         <section className="painel">
           <div className="painel-cabecalho">
-            <h2>Dados extraídos</h2>
+            <h2>Dados extraídos (JSON)</h2>
             <button type="button" className="botao-secundario" onClick={copiarJson}>
               {copiado ? 'Copiado' : 'Copiar JSON'}
             </button>
           </div>
-
-          {resultado?.categoriaCriada && (
-            <div className="categoria-criada">
-              <p>
-                O agent sugeriu a categoria <strong>{resultado.categoriaCriada.nome}</strong>:{' '}
-                {resultado.categoriaCriada.descricao.replace(/\.$/, '')}. Ela será criada ao lançar a nota.
-              </p>
-              <button type="button" className="botao-link" onClick={aoVerCategorias}>
-                Ver categorias
-              </button>
-            </div>
-          )}
 
           <pre className="json">{JSON.stringify(dados, null, 2)}</pre>
         </section>

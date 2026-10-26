@@ -5,9 +5,11 @@ import Versao from './Versao'
 
 interface Props {
   aoEntrar: () => void
+  /** Por que voltou ao login (ex.: inatividade). */
+  aviso?: string | null
 }
 
-export default function Login({ aoEntrar }: Props) {
+export default function Login({ aoEntrar, aviso }: Props) {
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
@@ -41,6 +43,7 @@ export default function Login({ aoEntrar }: Props) {
       <form className="painel" onSubmit={enviar}>
         <h2>Entrar</h2>
         <p className="subtitulo login-instrucao">Acesse com o usuário administrador.</p>
+        {aviso && !erro && <p className="alerta login-aviso">{aviso}</p>}
 
         <label className="campo">
           <span className="campo-rotulo">Usuário</span>

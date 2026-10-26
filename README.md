@@ -8,7 +8,7 @@ A avaliação N2 é dividida em duas etapas:
 | Etapa | Entrega | Peso |
 |-------|------------|------|
 | 1ª etapa | 29/09/2026 | 35% |
-| 2ª etapa | 28/10/2026 | 45% |
+| 2ª etapa | 27/10/2026 | 45% |
 
 ---
 
@@ -141,7 +141,7 @@ despesa. A partir daí ela vale para as próximas notas e entra na lista enviada
   "COMBUSTIVEL" e "combustível" são a mesma categoria, e a existente é reaproveitada.
 - **Por cautela:** se o agent já enquadrou a nota em alguma categoria existente, uma sugestão de
   categoria nova é descartada (e registrada como aviso).
-- **Inativar/reativar:** pela janela **Categorias** (cabeçalho) ou pelas rotas `/classificacoes`
+- **Inativar/reativar:** pela tela **Tipos de despesa** (menu Classificação) ou pelas rotas `/classificacoes`
   — seguindo a regra de que cadastros não se excluem. Uma categoria inativa, padrão ou criada,
   sai das opções do agent e **não pode ser recriada** por ele.
 
@@ -209,6 +209,31 @@ Depois da extração, o JSON da nota (formato acima) é enviado para:
    A conta passa pelas mesmas regras do `POST /contas` (vencimentos distintos, soma das parcelas
    igual ao total...). Se algo falhar, a resposta é `422` com o motivo e **nada** fica gravado.
 
+### Na tela (Lançar nota fiscal)
+
+Assim que a extração termina, o painel **Análise no banco de dados** chama `/contas/analisar` e
+mostra, como no enunciado:
+
+```
+FORNECEDOR                    FATURADO                  DESPESA
+IGUAÇU MAQUINAS LTDA          BELTRANO DA SILVA         MANUTENÇÃO E OPERAÇÃO
+CNPJ: 11.111.111/0001-00      CPF: 999.999.999-99       EXISTE – ID: 22
+NÃO EXISTE (vermelho)         EXISTE – ID: 19
+```
+
+Abaixo, a lista do que o lançamento vai fazer (cadastrar o que não existe, usar o que existe e
+registrar a conta com suas parcelas) e o botão **Lançar registro**. Ao lançar, a tela informa
+**"Registro lançado com sucesso."** com os IDs da conta, do fornecedor, do faturado, das
+despesas (marcando o que foi cadastrado agora) e as parcelas, e um atalho para a conta em
+**Contas a pagar**.
+
+- Cadastro encontrado mas **INATIVO**: aparece com o botão **Reativar**; o lançamento só é
+  liberado depois de reativá-lo.
+- Nota **já lançada** para o mesmo fornecedor: aviso com o ID da conta e o botão fica bloqueado,
+  para não pagar em dobro.
+- A categoria nova sugerida pelo agent aparece em DESPESA como NÃO EXISTE, com a descrição
+  sugerida, e é cadastrada no lançamento.
+
 ---
 
 ## Stack
@@ -229,7 +254,7 @@ SysFinan/
 ├── backend/                            # API e Agents (Python)
 │   ├── main.py                         # FastAPI: login, chave da API e POST /extrair
 │   ├── models.py                       # Esquemas Pydantic: etapas, nota completa e verificação
-│   ├── seguranca.py                    # Login do admin e sessões (token Bearer)
+│   ├── seguranca.py                    # Login do admin e sessões (token Bearer, inatividade)
 │   ├── banco.py                        # Conexão com o MySQL (SQLAlchemy) e sessões
 │   ├── tabelas.py                      # Tabelas do banco e seed das categorias padrão
 │   ├── crud.py                         # Listar/buscar, inativar e reativar (comum aos cadastros)
@@ -255,16 +280,24 @@ SysFinan/
 │   │   ├── icon-192.png, icon-512.png  # Ícones do app instalado (Android/desktop)
 │   │   └── site.webmanifest            # Nome e ícones do app instalado
 │   ├── src/
-│   │   ├── App.tsx                     # Alterna entre login e a área logada
+│   │   ├── App.tsx                     # Login ou área logada: menu lateral e telas (#endereço)
 │   │   ├── Login.tsx                   # Tela de login
 │   │   ├── Marca.tsx                   # Símbolo da marca em SVG (cores seguem o tema do app)
 │   │   ├── ChaveApi.tsx                # Janela de cadastro da chave do Gemini
-│   │   ├── Categorias.tsx              # Janela das categorias (inativar/reativar as criadas)
 │   │   ├── Janela.tsx                  # Janela modal reutilizável (<dialog>)
-│   │   ├── Extracao.tsx                # Upload do PDF e exibição do JSON
+│   │   ├── Confirmacao.tsx             # Janela de confirmação (exclusão lógica)
+│   │   ├── Cabecalho.tsx               # Título e subtítulo de cada tela (e o "← Voltar")
+│   │   ├── Extracao.tsx                # Upload do PDF, JSON extraído e análise da nota
+│   │   ├── AnaliseNota.tsx             # 2ª etapa: EXISTE/NÃO EXISTE no banco e lançamento
 │   │   ├── Etapas.tsx                  # Relatório das etapas (painel desativado no Extracao.tsx)
+│   │   ├── Listagem.tsx                # Tabela dos cadastros: busca, Todos, Inativos, ordenação
+│   │   ├── Pessoas.tsx                 # Manter Pessoas: fornecedores, clientes e faturados
+│   │   ├── Classificacoes.tsx          # Manter Classificação: tipos de receita e de despesa
+│   │   ├── Contas.tsx                  # Registrar Contas: a pagar e a receber, com parcelas
+│   │   ├── formatos.ts                 # Datas, R$, máscara de CPF/CNPJ e vencimentos
+│   │   ├── useInatividade.ts           # Logout por inatividade (aviso e renovação da sessão)
 │   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
-│   │   └── types.ts                    # Contrato do JSON da nota fiscal
+│   │   └── types.ts                    # Contratos da nota fiscal, cadastros, contas e análise
 │   └── package.json
 ├── docs/
 │   └── marca/                          # Arquivos originais da marca (logo e ícone), para referência
@@ -396,23 +429,31 @@ Variáveis de ambiente:
 | `GEMINI_MODEL` | Modelo(s) preferido(s) do Agent1, separados por vírgula, na frente da cadeia padrão. Deixe vazio para usar só a cadeia padrão | `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite` → `gemini-3.5-flash` |
 | `SYSFINAN_USUARIO` | Usuário do login | `admin` |
 | `SYSFINAN_SENHA` | Senha do login | `cruzeiro` |
+| `SYSFINAN_INATIVIDADE_MIN` | Minutos sem uso que encerram a sessão (logout por inatividade) | `30` |
 | `FRONTEND_URL` | URLs do front liberadas no CORS, separadas por vírgula (no Render, a URL pública do front) | `http://localhost:5173,http://127.0.0.1:5173` |
 
 ### Endpoints
 
 Todas as rotas, exceto `/login`, `/health` e `/versao`, exigem o cabeçalho `Authorization: Bearer <token>`. As sessões
-ficam em memória e duram 8 horas; reiniciar o servidor exige novo login.
+ficam em memória; reiniciar o servidor exige novo login. Uma sessão acaba no que vier primeiro:
+
+- **Inatividade:** `SYSFINAN_INATIVIDADE_MIN` minutos (padrão 30) sem nenhuma requisição autenticada.
+  Cada requisição renova o prazo.
+- **Limite absoluto:** 8 horas depois do login, mesmo com uso contínuo.
+
+O `401` traz o motivo em `detail` ("Sessão encerrada por inatividade..." ou "Sessão expirada...").
 
 | Método | Rota | Entrada | Saída |
 |--------|------|---------|-------|
 | `GET` | `/health` | — | `{ "status": "ok" }` (health check leve, sem chamar o Gemini) |
 | `GET` | `/versao` | — | `{ "commit", "alterado" }`: commit em execução (no Render, o do deploy) |
-| `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token" }` |
+| `POST` | `/login` | JSON `{ "usuario", "senha" }` | `{ "token", "inatividadeSegundos" }` |
 | `POST` | `/logout` | — | `204` |
+| `POST` | `/sessao/renovar` | — | `204`: renova o prazo de inatividade (o front chama enquanto há uso na tela) |
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
 | `PUT` | `/chave-api` | JSON `{ "chave" }` | Confere a chave no Google (sem gastar cota) e só então a ativa, em memória. `400` se o Google recusar, `503` se não der para verificar |
 | `DELETE` | `/chave-api` | — | situação da chave |
-| `GET` | `/categorias` | — | Categorias de despesa (padrão e criadas, ativas e inativas), para a janela Categorias |
+| `GET` | `/categorias` | — | Categorias de despesa (padrão e criadas, ativas e inativas). O front usa `/classificacoes` (tela Tipos de despesa) |
 | `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa) |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
 | `GET` | `/pessoas` | Query `busca`, `tipo`, `status`, `ordem`, `direcao` | Lista de pessoas (sem `status`, só as ATIVAS) |
@@ -513,7 +554,55 @@ Variável de ambiente:
 | `VITE_API_URL` | URL base da API que expõe `POST /extrair` | `http://localhost:8000` |
 
 Ao abrir, o front exibe a tela de login (usuário `admin`, senha `cruzeiro`). Depois de entrar,
-o botão **Chave API** no cabeçalho mostra a situação da chave (bolinha verde = **Ativa**,
+um menu lateral leva às telas, agrupadas como no enunciado (no celular, ele abre pelo botão
+**Menu**). Cada tela tem seu endereço (`#fornecedores`, `#contas-pagar`...), então o voltar do
+navegador funciona:
+
+| Grupo | Telas |
+|-------|-------|
+| Lançamento | **Lançar nota fiscal** — extração (1ª etapa), análise e lançamento (2ª etapa) |
+| Pessoas (Manter Pessoas) | **Fornecedores**, **Clientes**, **Faturados** |
+| Classificação (Manter Classificação) | **Tipos de receita**, **Tipos de despesa** |
+| Contas (Registrar Contas) | **Contas a pagar**, **Contas a receber** |
+
+A extração continua montada ao trocar de tela: o resultado (e uma extração em andamento) não se
+perde ao consultar um cadastro e voltar.
+
+### Telas de cadastro e de contas
+
+Seguem a recomendação de layout do enunciado:
+
+- **Tabela vazia ao abrir.** Os registros só carregam pela **Busca** ou por **Todos**.
+- **Todos** traz os registros com status ATIVO.
+- **Busca por mais de um elemento:** os termos separados por espaço precisam aparecer todos
+  (ex.: `iguacu maquinas`); CPF/CNPJ pode ser digitado sem máscara.
+- **Indexação por coluna:** clicar no título sublinhado ordena por ela (▲/▼), no back-end.
+- **Duas ações na tabela: Editar / Excluir.** O Excluir é lógico: pede confirmação e muda o
+  status para INATIVO.
+- **Status oculto** no formulário: o cadastro grava ATIVO e a edição não mexe nele.
+- **Reativar:** o botão **Inativos** lista os registros inativos (com a busca, se houver), e
+  neles a ação passa a ser **Reativar**.
+
+No formulário de conta, o fornecedor (ou cliente) e o faturado são escolhidos entre os ativos.
+As classificações são marcadas (uma ou mais) e as parcelas são linhas com vencimento e valor:
+**+ Adicionar parcela** sugere o mês seguinte e **Dividir o total igualmente** reparte o valor.
+A soma é conferida com o total enquanto se digita, e o back-end valida tudo de novo ao salvar.
+
+### Logout por inatividade
+
+O front acompanha mouse, teclado, rolagem e toque. Parado, mostra no último minuto o aviso
+**"Sem atividade: você será desconectado em N s"** com o botão **Continuar conectado** (qualquer
+movimento também cancela) e, esgotado o prazo, sai e mostra na tela de login *"Sessão encerrada
+por inatividade"*. Enquanto há uso sem requisições (ex.: lendo uma tela), ele renova a sessão no
+back-end no máximo uma vez por minuto. O front encerra um pouco antes do back-end (1 min), para o
+aviso nunca prometer um tempo que o servidor já não dá.
+
+A última atividade fica no `localStorage`, compartilhada entre as abas, e vale também ao reabrir:
+fechar o navegador e voltar depois do prazo exige novo login.
+
+### Chave da API e versão
+
+O botão **Chave API**, no rodapé do menu, mostra a situação da chave (bolinha verde = **Ativa**,
 vermelha = **Não informada**). Ao clicar, abre uma janela com os 4 últimos caracteres da chave,
 onde é possível cadastrar, substituir ou remover a chave. O botão
 **EXTRAIR DADOS** só fica liberado com a chave informada.
@@ -527,8 +616,8 @@ Se alguma etapa for reprovada, a tela mostra em qual etapa a extração parou e 
 relatório completo das etapas continua na resposta da API (`etapas`); o painel que o exibia
 está comentado em `Extracao.tsx`.
 
-O front envia o PDF em `multipart/form-data` (campo `arquivo`) para `POST {VITE_API_URL}/extrair`
-e exibe na tela o JSON devolvido.
+O front envia o PDF em `multipart/form-data` (campo `arquivo`) para `POST {VITE_API_URL}/extrair`,
+exibe na tela o JSON devolvido e, em seguida, a análise no banco (ver "Etapa 2").
 
 ---
 
