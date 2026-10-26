@@ -140,6 +140,11 @@ def logout(token: str = Depends(exigir_login)) -> None:
     encerrar(token)
 
 
+@app.post("/sessao/renovar", status_code=204, dependencies=[Depends(exigir_login)])
+def renovar_sessao() -> None:
+    """O front chama enquanto o usuario mexe na tela sem fazer requisicoes (exigir_login renova)."""
+
+
 @app.get("/chave-api", response_model=StatusChaveApi, dependencies=[Depends(exigir_login)])
 def obter_chave_api() -> StatusChaveApi:
     return status_chave()
