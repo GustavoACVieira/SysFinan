@@ -153,7 +153,7 @@ export default function AnaliseNota({ nota, categoriaSugerida, aoVerConta, aoExp
                     className="botao-link"
                     onClick={() => aoVerConta(nota.numeroNotaFiscal)}
                   >
-                    Ver em Contas a pagar
+                    Ver em Contas
                   </button>
                 </div>
               )}
@@ -346,7 +346,7 @@ function Sucesso({
         </dd>
       </dl>
       <button type="button" className="botao-secundario" onClick={() => aoVerConta(conta.numeroNotaFiscal)}>
-        Ver em Contas a pagar
+        Ver em Contas
       </button>
     </div>
   )

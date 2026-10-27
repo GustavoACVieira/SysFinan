@@ -28,23 +28,20 @@ const SESSAO_TERMINOU = 'Sua sessão terminou. Entre novamente.'
 /** Telas do menu; o id vai no endereço (#fornecedores), para o voltar do navegador funcionar. */
 const TELAS = {
   nota: { menu: 'Lançar nota fiscal', icone: IconeNota },
-  fornecedores: { menu: 'Fornecedores', icone: IconeFornecedor },
-  clientes: { menu: 'Clientes', icone: IconePessoas },
-  faturados: { menu: 'Faturados', icone: IconeFaturado },
-  'tipos-receita': { menu: 'Tipos de receita', icone: IconeReceita },
-  'tipos-despesa': { menu: 'Tipos de despesa', icone: IconeDespesa },
-  'contas-pagar': { menu: 'Contas a pagar', icone: IconeContaPagar },
-  'contas-receber': { menu: 'Contas a receber', icone: IconeContaReceber },
+  pessoas: { menu: 'Pessoas', icone: IconePessoas },
+  classificacoes: { menu: 'Classificações', icone: IconeClassificacao },
+  contas: { menu: 'Contas', icone: IconeConta },
 }
 
 type Tela = keyof typeof TELAS
 
-/** Grupos do enunciado: Manter Pessoas, Manter Classificação e Registrar Contas. */
+/**
+ * Uma tela por grupo do enunciado (Manter Pessoas, Manter Classificação e Registrar Contas);
+ * o tipo (fornecedor/cliente/faturado, receita/despesa, a pagar/a receber) é filtro na tabela.
+ */
 const SECOES: { titulo: string; telas: Tela[] }[] = [
   { titulo: 'Lançamento', telas: ['nota'] },
-  { titulo: 'Pessoas', telas: ['fornecedores', 'clientes', 'faturados'] },
-  { titulo: 'Classificação', telas: ['tipos-receita', 'tipos-despesa'] },
-  { titulo: 'Contas', telas: ['contas-pagar', 'contas-receber'] },
+  { titulo: 'Cadastros', telas: ['pessoas', 'classificacoes', 'contas'] },
 ]
 
 function telaDoEndereco(): Tela {
@@ -134,7 +131,7 @@ export default function App() {
 
   function verConta(numeroNotaFiscal: string | null) {
     setBuscaInicial(numeroNotaFiscal)
-    window.location.hash = 'contas-pagar'
+    window.location.hash = 'contas'
   }
 
   const botaoTema = (
@@ -237,24 +234,16 @@ export default function App() {
           />
         </div>
 
-        {tela === 'fornecedores' && <Pessoas key={tela} tipo="FORNECEDOR" aoExpirarSessao={expirarSessao} />}
-        {tela === 'clientes' && <Pessoas key={tela} tipo="CLIENTE" aoExpirarSessao={expirarSessao} />}
-        {tela === 'faturados' && <Pessoas key={tela} tipo="FATURADO" aoExpirarSessao={expirarSessao} />}
-        {tela === 'tipos-receita' && (
-          <Classificacoes key={tela} tipo="RECEITA" aoExpirarSessao={expirarSessao} />
-        )}
-        {tela === 'tipos-despesa' && (
-          <Classificacoes key={tela} tipo="DESPESA" aoExpirarSessao={expirarSessao} />
-        )}
-        {tela === 'contas-pagar' && (
+        {tela === 'pessoas' && <Pessoas aoExpirarSessao={expirarSessao} />}
+        {tela === 'classificacoes' && <Classificacoes aoExpirarSessao={expirarSessao} />}
+        {tela === 'contas' && (
           <Contas
-            key={`${tela}:${buscaInicial}`}
-            tipo="APAGAR"
+            key={buscaInicial ?? ''}
             buscaInicial={buscaInicial}
+            tipoInicial={buscaInicial === null ? null : 'APAGAR'}
             aoExpirarSessao={expirarSessao}
           />
         )}
-        {tela === 'contas-receber' && <Contas key={tela} tipo="ARECEBER" aoExpirarSessao={expirarSessao} />}
       </main>
 
       {segundosRestantes !== null && (
@@ -328,15 +317,6 @@ function IconeNota() {
   )
 }
 
-function IconeFornecedor() {
-  return (
-    <Icone>
-      <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7" />
-      <circle cx="7" cy="18" r="2" />
-      <circle cx="17" cy="18" r="2" />
-    </Icone>
-  )
-}
 
 function IconePessoas() {
   return (
@@ -347,47 +327,25 @@ function IconePessoas() {
   )
 }
 
-function IconeFaturado() {
+
+
+
+
+
+function IconeClassificacao() {
   return (
     <Icone>
-      <circle cx="10" cy="8" r="3.5" />
-      <path d="M3.5 20a6.5 6.5 0 0 1 10-5.5M15.5 18l2 2 4-4.5" />
+      <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" />
+      <circle cx="8" cy="8" r="1.5" />
     </Icone>
   )
 }
 
-function IconeReceita() {
-  return (
-    <Icone>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 16V8M8.5 11.5 12 8l3.5 3.5" />
-    </Icone>
-  )
-}
-
-function IconeDespesa() {
-  return (
-    <Icone>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8v8M8.5 12.5 12 16l3.5-3.5" />
-    </Icone>
-  )
-}
-
-function IconeContaPagar() {
+function IconeConta() {
   return (
     <Icone>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="M3 10h18M7 15h4" />
-    </Icone>
-  )
-}
-
-function IconeContaReceber() {
-  return (
-    <Icone>
-      <path d="M4 4h16v16l-3-2-3 2-2-2-2 2-3-2-3 2z" />
-      <path d="M8 9h8M8 13h5" />
     </Icone>
   )
 }

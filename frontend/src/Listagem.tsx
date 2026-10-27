@@ -22,9 +22,19 @@ export interface Recarga {
   mensagem: string
 }
 
+/** Filtro por tipo ao lado da busca (ex.: Fornecedor, Cliente, Faturado). */
+export interface Filtro {
+  rotulo: string
+  /** Texto da opção sem filtro, ex.: "Todos os tipos". */
+  todos: string
+  opcoes: { valor: string; texto: string }[]
+}
+
 interface ConsultaFeita {
   busca: string
   status: Status
+  /** '' = todos os tipos. */
+  tipo: string
 }
 
 interface Props<T> {
@@ -41,11 +51,14 @@ interface Props<T> {
   id: (item: T) => number
   nome: (item: T) => string
   aoEditar: (item: T) => void
-  aoInserir: () => void
+  /** Recebe o tipo filtrado, para o formulário já vir com ele. */
+  aoInserir: (tipo: string) => void
   textoInserir: string
   recarga: Recarga | null
+  filtro?: Filtro
   /** Já abre buscando este termo (ex.: vindo do lançamento da nota). */
   buscaInicial?: string | null
+  tipoInicial?: string | null
   /** O que a exclusão lógica faz com este cadastro, na janela de confirmação. */
   explicacaoExclusao?: React.ReactNode
   aoExpirarSessao: () => void
@@ -80,11 +93,14 @@ export default function Listagem<T>({
   aoInserir,
   textoInserir,
   recarga,
+  filtro,
   buscaInicial,
+  tipoInicial,
   explicacaoExclusao = EXPLICACAO_PADRAO,
   aoExpirarSessao,
 }: Props<T>) {
   const [termo, setTermo] = useState(buscaInicial ?? '')
+  const [tipo, setTipo] = useState(tipoInicial ?? '')
   // Última consulta pedida (refeita ao ordenar ou salvar) e a que trouxe os itens na tela.
   const [feita, setFeita] = useState<ConsultaFeita | null>(null)
   const [exibida, setExibida] = useState<ConsultaFeita | null>(null)
@@ -109,7 +125,12 @@ export default function Listagem<T>({
     setCarregando(true)
     setErro(null)
     try {
-      const lista = await listar({ busca: consulta.busca, status: consulta.status, ...novaOrdem })
+      const lista = await listar({
+        busca: consulta.busca,
+        status: consulta.status,
+        tipo: consulta.tipo,
+        ...novaOrdem,
+      })
       if (numero === pedido.current) {
         setItens(lista)
         setExibida(consulta)
@@ -122,30 +143,36 @@ export default function Listagem<T>({
   }
 
   useEffect(() => {
-    if (buscaInicial) carregar({ busca: buscaInicial, status: 'ATIVO' })
+    if (buscaInicial) carregar({ busca: buscaInicial, status: 'ATIVO', tipo })
   }, [])
 
   useEffect(() => {
     if (!recarga) return
-    carregar(feita ?? { busca: '', status: 'ATIVO' })
+    carregar(feita ?? { busca: '', status: 'ATIVO', tipo })
     setAviso(recarga.mensagem)
   }, [recarga])
 
   function buscar(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAviso(null)
-    carregar({ busca: termo.trim(), status: 'ATIVO' })
+    carregar({ busca: termo.trim(), status: 'ATIVO', tipo })
   }
 
   function todos() {
     setTermo('')
     setAviso(null)
-    carregar({ busca: '', status: 'ATIVO' })
+    carregar({ busca: '', status: 'ATIVO', tipo })
   }
 
   function inativos() {
     setAviso(null)
-    carregar({ busca: termo.trim(), status: 'INATIVO' })
+    carregar({ busca: termo.trim(), status: 'INATIVO', tipo })
+  }
+
+  /** Trocar o tipo refaz a consulta da tela (se já houver uma) só com esse tipo. */
+  function filtrar(novo: string) {
+    setTipo(novo)
+    if (feita) carregar({ ...feita, tipo: novo })
   }
 
   function ordenar(campo: string) {
@@ -180,11 +207,13 @@ export default function Listagem<T>({
 
   const vendoInativos = exibida?.status === 'INATIVO'
   const total = itens?.length ?? 0
+  const tipoExibido = filtro?.opcoes.find((o) => o.valor === exibida?.tipo)?.texto
   const resumo =
     itens &&
     exibida &&
     `${total} ${total === 1 ? 'registro' : 'registros'} ` +
       (vendoInativos ? (total === 1 ? 'inativo' : 'inativos') : total === 1 ? 'ativo' : 'ativos') +
+      (tipoExibido ? ` · ${tipoExibido}` : '') +
       (exibida.busca ? ` para “${exibida.busca}”` : '')
 
   return (
@@ -200,6 +229,22 @@ export default function Listagem<T>({
             onChange={(e) => setTermo(e.target.value)}
             aria-label={tituloBusca}
           />
+          {filtro && (
+            <select
+              className="entrada busca-filtro"
+              value={tipo}
+              onChange={(e) => filtrar(e.target.value)}
+              aria-label={filtro.rotulo}
+              title={filtro.rotulo}
+            >
+              <option value="">{filtro.todos}</option>
+              {filtro.opcoes.map((o) => (
+                <option key={o.valor} value={o.valor}>
+                  {o.texto}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="busca-botoes">
             <button type="submit" className="botao-primario">
               Buscar
@@ -330,7 +375,7 @@ export default function Listagem<T>({
       </section>
 
       <div className="rodape-lista">
-        <button type="button" className="botao-primario" onClick={aoInserir}>
+        <button type="button" className="botao-primario" onClick={() => aoInserir(tipo)}>
           + {textoInserir}
         </button>
       </div>

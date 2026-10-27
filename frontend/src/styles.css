@@ -937,6 +937,10 @@ h1 {
   flex: 1 1 280px;
 }
 
+.busca .busca-filtro {
+  flex: 0 1 190px;
+}
+
 .busca-botoes {
   display: flex;
   gap: 8px;
@@ -1191,6 +1195,11 @@ h1 {
 .campo .dica {
   display: block;
   margin-top: 6px;
+}
+
+/* Ocupa a linha sozinho, mas sem esticar o campo (ex.: o Tipo no topo dos formulários). */
+.campo-curto .entrada {
+  max-width: 260px;
 }
 
 .opcional {

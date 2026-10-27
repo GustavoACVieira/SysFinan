@@ -9,7 +9,7 @@ import {
   somarMeses,
   valorParaCampo,
 } from './formatos'
-import Listagem, { type Coluna, type Recarga } from './Listagem'
+import Listagem, { type Coluna, type Filtro, type Recarga } from './Listagem'
 import type {
   Classificacao,
   Conta,
@@ -21,11 +21,10 @@ import type {
 } from './types'
 
 interface Textos {
-  titulo: string
-  subtitulo: string
+  /** Nome do tipo na tabela e no filtro. */
+  tipo: string
   singular: string
   pessoa: string
-  pessoaPlural: string
   tipoPessoa: TipoPessoa
   classificacao: string
   classificacaoSingular: string
@@ -35,24 +34,18 @@ interface Textos {
 /** O que cada tipo de conta exige: fornecedor e despesas a pagar; cliente e receitas a receber. */
 const TEXTOS: Record<TipoMovimento, Textos> = {
   APAGAR: {
-    titulo: 'Contas a pagar',
-    subtitulo:
-      'Notas de fornecedores, classificadas em um ou mais tipos de despesa e divididas em uma ou mais parcelas.',
+    tipo: 'A pagar',
     singular: 'conta a pagar',
     pessoa: 'Fornecedor',
-    pessoaPlural: 'Fornecedores',
     tipoPessoa: 'FORNECEDOR',
     classificacao: 'Tipos de despesa',
     classificacaoSingular: 'tipo de despesa',
     tipoClassificacao: 'DESPESA',
   },
   ARECEBER: {
-    titulo: 'Contas a receber',
-    subtitulo:
-      'Valores a receber de clientes, classificados em um ou mais tipos de receita e divididos em uma ou mais parcelas.',
+    tipo: 'A receber',
     singular: 'conta a receber',
     pessoa: 'Cliente',
-    pessoaPlural: 'Clientes',
     tipoPessoa: 'CLIENTE',
     classificacao: 'Tipos de receita',
     classificacaoSingular: 'tipo de receita',
@@ -60,97 +53,117 @@ const TEXTOS: Record<TipoMovimento, Textos> = {
   },
 }
 
+const TIPOS = Object.keys(TEXTOS) as TipoMovimento[]
+
+const FILTRO: Filtro = {
+  rotulo: 'Filtrar por tipo de conta',
+  todos: 'A pagar e a receber',
+  opcoes: TIPOS.map((t) => ({ valor: t, texto: TEXTOS[t].tipo })),
+}
+
 function nomeConta(conta: Conta): string {
   const nota = conta.numeroNotaFiscal ? `NF ${conta.numeroNotaFiscal}` : `Conta ID ${conta.idMovimentoContas}`
   return `${nota} — ${conta.fornecedorCliente.razaoSocial}`
 }
 
+const COLUNAS: Coluna<Conta>[] = [
+  { titulo: 'ID', ordem: 'idMovimentoContas', valor: (c) => c.idMovimentoContas, classe: 'numero' },
+  {
+    titulo: 'Tipo',
+    ordem: 'tipo',
+    valor: (c) => <span className="etiqueta">{TEXTOS[c.tipo].tipo}</span>,
+    classe: 'nowrap',
+  },
+  { titulo: 'Nº NF', ordem: 'numeroNotaFiscal', valor: (c) => c.numeroNotaFiscal ?? '—', classe: 'nowrap' },
+  { titulo: 'Emissão', ordem: 'dataEmissao', valor: (c) => formatarData(c.dataEmissao), classe: 'nowrap' },
+  {
+    // O faturado vai junto, numa linha abaixo: uma coluna a mais não cabe com Tipo e Parcelas.
+    titulo: 'Fornecedor / Cliente',
+    ordem: 'fornecedorCliente',
+    valor: (c) => (
+      <>
+        {c.fornecedorCliente.razaoSocial}
+        <span className="celula-detalhe documento">{c.fornecedorCliente.documento}</span>
+        <span className="celula-detalhe">Faturado: {c.faturado.razaoSocial}</span>
+      </>
+    ),
+  },
+  {
+    titulo: 'Classificação',
+    valor: (c) => (
+      <span className="etiquetas">
+        {c.classificacoes.map((cl) => (
+          <span key={cl.idClassificacao} className="etiqueta">
+            {cl.descricao}
+          </span>
+        ))}
+      </span>
+    ),
+  },
+  {
+    titulo: 'Parcelas',
+    valor: (c) => (
+      <ul className="lista-parcelas">
+        {c.parcelas.map((p) => (
+          <li key={p.idParcelaContas}>
+            <span className="parcela-identificacao">{p.identificacao}</span>
+            {formatarData(p.dataVencimento)}
+            <span className="celula-detalhe">{formatarReais(p.valorParcela)}</span>
+          </li>
+        ))}
+      </ul>
+    ),
+  },
+  { titulo: 'Valor total', ordem: 'valorTotal', valor: (c) => formatarReais(c.valorTotal), classe: 'numero nowrap' },
+]
+
 interface Props {
-  tipo: TipoMovimento
-  /** Abre já buscando este termo (o nº da nota, vindo do lançamento). */
+  /** Abre já buscando este termo (o nº da nota, vindo do lançamento)... */
   buscaInicial?: string | null
+  /** ...e filtrada neste tipo. */
+  tipoInicial?: TipoMovimento | null
   aoExpirarSessao: () => void
 }
 
-/** Registrar Contas: contas a pagar e a receber (T001_MOVIMENTOCONTAS + T002_PARCELACONTAS). */
-export default function Contas({ tipo, buscaInicial, aoExpirarSessao }: Props) {
-  const t = TEXTOS[tipo]
-  const [editando, setEditando] = useState<Conta | 'nova' | null>(null)
+/** Registrar Contas: a pagar e a receber numa tela só (T001_MOVIMENTOCONTAS + T002_PARCELACONTAS). */
+export default function Contas({ buscaInicial, tipoInicial, aoExpirarSessao }: Props) {
+  const [editando, setEditando] = useState<Conta | { tipo: TipoMovimento | '' } | null>(null)
   const [recarga, setRecarga] = useState<Recarga | null>(null)
-
-  const colunas: Coluna<Conta>[] = [
-    { titulo: 'ID', ordem: 'idMovimentoContas', valor: (c) => c.idMovimentoContas, classe: 'numero' },
-    { titulo: 'Nº NF', ordem: 'numeroNotaFiscal', valor: (c) => c.numeroNotaFiscal ?? '—', classe: 'nowrap' },
-    { titulo: 'Emissão', ordem: 'dataEmissao', valor: (c) => formatarData(c.dataEmissao), classe: 'nowrap' },
-    {
-      titulo: t.pessoa,
-      ordem: 'fornecedorCliente',
-      valor: (c) => (
-        <>
-          {c.fornecedorCliente.razaoSocial}
-          <span className="celula-detalhe documento">{c.fornecedorCliente.documento}</span>
-        </>
-      ),
-    },
-    { titulo: 'Faturado', valor: (c) => c.faturado.razaoSocial },
-    {
-      titulo: 'Classificação',
-      valor: (c) => (
-        <span className="etiquetas">
-          {c.classificacoes.map((cl) => (
-            <span key={cl.idClassificacao} className="etiqueta">
-              {cl.descricao}
-            </span>
-          ))}
-        </span>
-      ),
-    },
-    {
-      titulo: 'Parcelas',
-      valor: (c) => (
-        <ul className="lista-parcelas">
-          {c.parcelas.map((p) => (
-            <li key={p.idParcelaContas}>
-              <span className="parcela-identificacao">{p.identificacao}</span>
-              {formatarData(p.dataVencimento)}
-              <span className="celula-detalhe">{formatarReais(p.valorParcela)}</span>
-            </li>
-          ))}
-        </ul>
-      ),
-    },
-    { titulo: 'Valor total', ordem: 'valorTotal', valor: (c) => formatarReais(c.valorTotal), classe: 'numero nowrap' },
-  ]
 
   function aoSalvar(conta: Conta, nova: boolean) {
     setEditando(null)
-    const singular = t.singular.charAt(0).toUpperCase() + t.singular.slice(1)
+    const singular = TEXTOS[conta.tipo].singular
     setRecarga({
-      mensagem: `${singular} ${nova ? 'registrada' : 'atualizada'}: ${nomeConta(conta)} (ID ${conta.idMovimentoContas}).`,
+      mensagem: `${singular.charAt(0).toUpperCase() + singular.slice(1)} ${nova ? 'registrada' : 'atualizada'}: ${nomeConta(conta)} (ID ${conta.idMovimentoContas}).`,
     })
   }
 
   return (
     <>
       <div hidden={editando !== null}>
-        <Cabecalho titulo={t.titulo} subtitulo={t.subtitulo} />
+        <Cabecalho
+          titulo="Contas"
+          subtitulo="Contas a pagar (fornecedor e despesas) e a receber (cliente e receitas), com uma ou mais classificações e uma ou mais parcelas."
+        />
         <Listagem<Conta>
-          tituloBusca={`Buscar ${t.titulo.toLowerCase()}`}
-          tituloLista={`Lista de ${t.titulo.toLowerCase()}`}
-          rotulo={t.singular}
-          placeholder={`Buscar por nº da nota, descrição ou ${t.pessoa.toLowerCase()}…`}
-          colunas={colunas}
+          tituloBusca="Buscar contas"
+          tituloLista="Lista de contas"
+          rotulo="conta"
+          placeholder="Buscar por nº da nota, descrição ou fornecedor/cliente…"
+          colunas={COLUNAS}
           ordemPadrao={{ ordem: 'dataEmissao', direcao: 'desc' }}
-          listar={(consulta) => contas.listar({ ...consulta, tipo })}
+          filtro={FILTRO}
+          listar={contas.listar}
           inativar={contas.inativar}
           reativar={contas.reativar}
           id={(c) => c.idMovimentoContas}
           nome={nomeConta}
           aoEditar={setEditando}
-          aoInserir={() => setEditando('nova')}
-          textoInserir={`Registrar nova ${t.singular}`}
+          aoInserir={(tipo) => setEditando({ tipo: tipo as TipoMovimento | '' })}
+          textoInserir="Registrar nova conta"
           recarga={recarga}
           buscaInicial={buscaInicial}
+          tipoInicial={tipoInicial}
           explicacaoExclusao={
             <>
               A conta não é apagada: fica <strong>INATIVA</strong>, com suas parcelas, e sai das
@@ -163,8 +176,8 @@ export default function Contas({ tipo, buscaInicial, aoExpirarSessao }: Props) {
 
       {editando && (
         <FormularioConta
-          tipo={tipo}
-          conta={editando === 'nova' ? null : editando}
+          conta={'idMovimentoContas' in editando ? editando : null}
+          tipoInicial={editando.tipo}
           aoSalvar={aoSalvar}
           aoVoltar={() => setEditando(null)}
           aoExpirarSessao={aoExpirarSessao}
@@ -180,9 +193,9 @@ interface ParcelaFormulario {
   valor: string
 }
 
+/** Dependem do tipo da conta: fornecedores e despesas, ou clientes e receitas. */
 interface Opcoes {
   pessoas: Pessoa[]
-  faturados: Pessoa[]
   classificacoes: Classificacao[]
 }
 
@@ -197,17 +210,20 @@ function centavos(valor: number): number {
 }
 
 interface PropsFormulario {
-  tipo: TipoMovimento
   conta: Conta | null
+  /** No cadastro, o tipo que estava filtrado na lista ('' se nenhum). */
+  tipoInicial: TipoMovimento | ''
   aoSalvar: (conta: Conta, nova: boolean) => void
   aoVoltar: () => void
   aoExpirarSessao: () => void
 }
 
-function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: PropsFormulario) {
+function FormularioConta({ conta, tipoInicial, aoSalvar, aoVoltar, aoExpirarSessao }: PropsFormulario) {
+  const [tipo, setTipo] = useState<TipoMovimento>(conta?.tipo ?? (tipoInicial || 'APAGAR'))
   const t = TEXTOS[tipo]
   const proximaChave = useRef(conta?.parcelas.length ?? 1)
   const [opcoes, setOpcoes] = useState<Opcoes | null>(null)
+  const [faturados, setFaturados] = useState<Pessoa[] | null>(null)
   const [idPessoa, setIdPessoa] = useState(conta ? String(conta.fornecedorCliente.idPessoas) : '')
   const [idFaturado, setIdFaturado] = useState(conta ? String(conta.faturado.idPessoas) : '')
   const [numeroNotaFiscal, setNumeroNotaFiscal] = useState(conta?.numeroNotaFiscal ?? '')
@@ -229,25 +245,45 @@ function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: P
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  function tratarErroCarga(e: unknown) {
+    if (e instanceof SessaoExpirada) return aoExpirarSessao()
+    setErro(e instanceof Error ? e.message : 'Não foi possível carregar os cadastros')
+  }
+
   useEffect(() => {
     window.scrollTo({ top: 0 })
+    pessoas
+      .listar({ tipo: 'FATURADO' })
+      .then((lista) => setFaturados(comAtual(lista, conta ? [conta.faturado] : [], (p) => p.idPessoas)))
+      .catch(tratarErroCarga)
+  }, [])
+
+  useEffect(() => {
+    let atual = true
+    setOpcoes(null)
     Promise.all([
       pessoas.listar({ tipo: t.tipoPessoa }),
-      pessoas.listar({ tipo: 'FATURADO' }),
       classificacoes.listar({ tipo: t.tipoClassificacao }),
     ])
-      .then(([lista, faturados, tipos]) =>
+      .then(([lista, tipos]) => {
+        if (!atual) return
         setOpcoes({
           pessoas: comAtual(lista, conta ? [conta.fornecedorCliente] : [], (p) => p.idPessoas),
-          faturados: comAtual(faturados, conta ? [conta.faturado] : [], (p) => p.idPessoas),
           classificacoes: comAtual(tipos, conta?.classificacoes ?? [], (c) => c.idClassificacao),
-        }),
-      )
-      .catch((e) => {
-        if (e instanceof SessaoExpirada) return aoExpirarSessao()
-        setErro(e instanceof Error ? e.message : 'Não foi possível carregar os cadastros')
+        })
       })
-  }, [])
+      .catch(tratarErroCarga)
+    return () => {
+      atual = false
+    }
+  }, [tipo])
+
+  /** Só no cadastro: o fornecedor/cliente e as classificações escolhidos eram do outro tipo. */
+  function trocarTipo(novo: TipoMovimento) {
+    setTipo(novo)
+    setIdPessoa('')
+    setIdsClassificacoes([])
+  }
 
   const total = lerValor(valorTotal)
   const valores = parcelas.map((p) => lerValor(p.valor))
@@ -340,12 +376,12 @@ function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: P
     }
   }
 
-  const bloqueado = salvando || opcoes === null
+  const bloqueado = salvando || opcoes === null || faturados === null
 
   return (
     <>
       <Cabecalho
-        titulo={conta ? `Editar ${t.singular}` : `Nova ${t.singular}`}
+        titulo={conta ? `Editar ${t.singular}` : 'Nova conta'}
         subtitulo={
           conta ? `ID ${conta.idMovimentoContas}${conta.status === 'INATIVO' ? ' · INATIVA' : ''}` : undefined
         }
@@ -353,9 +389,30 @@ function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: P
       />
 
       <form className="painel" onSubmit={enviar}>
-        <h2>Formulário de {t.singular}</h2>
+        <h2>Formulário de conta</h2>
 
         <div className="grade-formulario">
+          <label className="campo campo-inteiro campo-curto">
+            <span className="campo-rotulo">Tipo</span>
+            <select
+              className="entrada"
+              value={tipo}
+              onChange={(e) => trocarTipo(e.target.value as TipoMovimento)}
+              disabled={salvando || conta !== null}
+            >
+              {TIPOS.map((opcao) => (
+                <option key={opcao} value={opcao}>
+                  {TEXTOS[opcao].tipo}
+                </option>
+              ))}
+            </select>
+            {conta && (
+              <span className="dica">
+                O tipo não muda depois do registro: ele define o fornecedor/cliente e as classificações.
+              </span>
+            )}
+          </label>
+
           <label className="campo campo-metade">
             <span className="campo-rotulo">{t.pessoa}</span>
             <SelecaoPessoa
@@ -363,18 +420,18 @@ function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: P
               valor={idPessoa}
               aoAlterar={setIdPessoa}
               desabilitado={bloqueado}
-              vazio={`Nenhum ${t.pessoa.toLowerCase()} ativo: cadastre em ${t.pessoaPlural}`}
+              vazio={`Nenhum ${t.pessoa.toLowerCase()} ativo: cadastre em Pessoas`}
             />
           </label>
 
           <label className="campo campo-metade">
             <span className="campo-rotulo">Faturado</span>
             <SelecaoPessoa
-              pessoas={opcoes?.faturados}
+              pessoas={faturados ?? undefined}
               valor={idFaturado}
               aoAlterar={setIdFaturado}
               desabilitado={bloqueado}
-              vazio="Nenhum faturado ativo: cadastre em Faturados"
+              vazio="Nenhum faturado ativo: cadastre em Pessoas"
             />
           </label>
 
@@ -436,7 +493,7 @@ function FormularioConta({ tipo, conta, aoSalvar, aoVoltar, aoExpirarSessao }: P
               <p className="dica">Carregando…</p>
             ) : opcoes.classificacoes.length === 0 ? (
               <p className="dica">
-                Nenhum {t.classificacaoSingular} ativo: cadastre em {t.classificacao}.
+                Nenhum {t.classificacaoSingular} ativo: cadastre em Classificações.
               </p>
             ) : (
               <div className="opcoes-marcar">

@@ -141,7 +141,7 @@ despesa. A partir daí ela vale para as próximas notas e entra na lista enviada
   "COMBUSTIVEL" e "combustível" são a mesma categoria, e a existente é reaproveitada.
 - **Por cautela:** se o agent já enquadrou a nota em alguma categoria existente, uma sugestão de
   categoria nova é descartada (e registrada como aviso).
-- **Inativar/reativar:** pela tela **Tipos de despesa** (menu Classificação) ou pelas rotas `/classificacoes`
+- **Inativar/reativar:** pela tela **Classificações** (filtro Despesa) ou pelas rotas `/classificacoes`
   — seguindo a regra de que cadastros não se excluem. Uma categoria inativa, padrão ou criada,
   sai das opções do agent e **não pode ser recriada** por ele.
 
@@ -225,7 +225,7 @@ Abaixo, a lista do que o lançamento vai fazer (cadastrar o que não existe, usa
 registrar a conta com suas parcelas) e o botão **Lançar registro**. Ao lançar, a tela informa
 **"Registro lançado com sucesso."** com os IDs da conta, do fornecedor, do faturado, das
 despesas (marcando o que foi cadastrado agora) e as parcelas, e um atalho para a conta em
-**Contas a pagar**.
+**Contas** (já filtrada em A pagar e buscando a nota).
 
 - Cadastro encontrado mas **INATIVO**: aparece com o botão **Reativar**; o lançamento só é
   liberado depois de reativá-lo.
@@ -290,10 +290,10 @@ SysFinan/
 │   │   ├── Extracao.tsx                # Upload do PDF, JSON extraído e análise da nota
 │   │   ├── AnaliseNota.tsx             # 2ª etapa: EXISTE/NÃO EXISTE no banco e lançamento
 │   │   ├── Etapas.tsx                  # Relatório das etapas (painel desativado no Extracao.tsx)
-│   │   ├── Listagem.tsx                # Tabela dos cadastros: busca, Todos, Inativos, ordenação
-│   │   ├── Pessoas.tsx                 # Manter Pessoas: fornecedores, clientes e faturados
-│   │   ├── Classificacoes.tsx          # Manter Classificação: tipos de receita e de despesa
-│   │   ├── Contas.tsx                  # Registrar Contas: a pagar e a receber, com parcelas
+│   │   ├── Listagem.tsx                # Tabela dos cadastros: busca, filtro por tipo, Todos, Inativos, ordenação
+│   │   ├── Pessoas.tsx                 # Manter Pessoas: fornecedores, clientes e faturados (filtro)
+│   │   ├── Classificacoes.tsx          # Manter Classificação: receitas e despesas (filtro)
+│   │   ├── Contas.tsx                  # Registrar Contas: a pagar e a receber (filtro), com parcelas
 │   │   ├── formatos.ts                 # Datas, R$, máscara de CPF/CNPJ e vencimentos
 │   │   ├── useInatividade.ts           # Logout por inatividade (aviso e renovação da sessão)
 │   │   ├── api.ts                      # Chamadas à API (com o token da sessão)
@@ -453,7 +453,7 @@ O `401` traz o motivo em `detail` ("Sessão encerrada por inatividade..." ou "Se
 | `GET` | `/chave-api` | — | `{ "informada": bool, "mascara": "••••abcd" \| null }` |
 | `PUT` | `/chave-api` | JSON `{ "chave" }` | Confere a chave no Google (sem gastar cota) e só então a ativa, em memória. `400` se o Google recusar, `503` se não der para verificar |
 | `DELETE` | `/chave-api` | — | situação da chave |
-| `GET` | `/categorias` | — | Categorias de despesa (padrão e criadas, ativas e inativas). O front usa `/classificacoes` (tela Tipos de despesa) |
+| `GET` | `/categorias` | — | Categorias de despesa (padrão e criadas, ativas e inativas). O front usa `/classificacoes` (tela Classificações) |
 | `PUT` | `/categorias/situacao` | JSON `{ "nome", "ativa" }` | Categoria atualizada (inativa ou reativa) |
 | `POST` | `/extrair` | `multipart/form-data`, campo `arquivo` (PDF) | `{ "concluida", "etapas": [...], "dados": <JSON no formato acima> \| null }` |
 | `GET` | `/pessoas` | Query `busca`, `tipo`, `status`, `ordem`, `direcao` | Lista de pessoas (sem `status`, só as ATIVAS) |
@@ -555,15 +555,15 @@ Variável de ambiente:
 
 Ao abrir, o front exibe a tela de login (usuário `admin`, senha `cruzeiro`). Depois de entrar,
 um menu lateral leva às telas, agrupadas como no enunciado (no celular, ele abre pelo botão
-**Menu**). Cada tela tem seu endereço (`#fornecedores`, `#contas-pagar`...), então o voltar do
-navegador funciona:
+**Menu**). Cada tela tem seu endereço (`#pessoas`, `#contas`...), então o voltar do navegador
+funciona. Há uma tela por grupo do enunciado; o tipo é um filtro dentro dela:
 
-| Grupo | Telas |
-|-------|-------|
-| Lançamento | **Lançar nota fiscal** — extração (1ª etapa), análise e lançamento (2ª etapa) |
-| Pessoas (Manter Pessoas) | **Fornecedores**, **Clientes**, **Faturados** |
-| Classificação (Manter Classificação) | **Tipos de receita**, **Tipos de despesa** |
-| Contas (Registrar Contas) | **Contas a pagar**, **Contas a receber** |
+| Tela | Funcionalidade do enunciado | Filtro por tipo |
+|------|-----------------------------|-----------------|
+| **Lançar nota fiscal** | Extração (1ª etapa), análise e lançamento (2ª etapa) | — |
+| **Pessoas** | Manter Fornecedor, Cliente e Faturado | Fornecedor, Cliente, Faturado |
+| **Classificações** | Manter Tipo de Receita e Tipo de Despesa | Receita, Despesa |
+| **Contas** | Registrar Contas a Pagar e a Receber | A pagar, A receber |
 
 A extração continua montada ao trocar de tela: o resultado (e uma extração em andamento) não se
 perde ao consultar um cadastro e voltar.
@@ -582,8 +582,13 @@ Seguem a recomendação de layout do enunciado:
 - **Status oculto** no formulário: o cadastro grava ATIVO e a edição não mexe nele.
 - **Reativar:** o botão **Inativos** lista os registros inativos (com a busca, se houver), e
   neles a ação passa a ser **Reativar**.
+- **Filtro por tipo:** a caixa ao lado da busca limita Buscar, Todos e Inativos a um tipo; trocar
+  o filtro refaz a consulta da tela. A coluna **Tipo** também ordena.
+- **Tipo no formulário:** no cadastro é escolhido no campo **Tipo** (já vem com o do filtro, se
+  houver); na edição fica travado, porque as contas já registradas dependem dele.
 
-No formulário de conta, o fornecedor (ou cliente) e o faturado são escolhidos entre os ativos.
+No formulário de conta, trocar o tipo (A pagar/A receber) recarrega as opções: fornecedores e
+despesas, ou clientes e receitas. O fornecedor (ou cliente) e o faturado são escolhidos entre os ativos.
 As classificações são marcadas (uma ou mais) e as parcelas são linhas com vencimento e valor:
 **+ Adicionar parcela** sugere o mês seguinte e **Dividir o total igualmente** reparte o valor.
 A soma é conferida com o total enquanto se digita, e o back-end valida tudo de novo ao salvar.
